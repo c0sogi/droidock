@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Protocol, runtime_checkable
 
-from .models import PairResult, Service, Transport
+from .models import CommandResult, PairResult, Service, Transport
 
 
 class Backend(Protocol):
@@ -20,3 +22,19 @@ class Backend(Protocol):
 
 class Discovery(Protocol):
     def discover(self, seconds: float) -> tuple[list[Service], list[str]]: ...
+
+
+@runtime_checkable
+class CommandBackend(Protocol):
+    """Optional command capability; discovery-only test/custom backends remain valid."""
+
+    def run(
+        self,
+        arguments: Sequence[str],
+        *,
+        serial: str | None = None,
+        input_text: str | None = None,
+        timeout: float | None = None,
+        cwd: str | Path | None = None,
+        check: bool = True,
+    ) -> CommandResult: ...

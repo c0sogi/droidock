@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import sys
 
-import adbutils
-
 from droidock import ConnectionEvent, ConnectionManager, DroidockError
 
 
@@ -19,10 +17,9 @@ def on_event(event: ConnectionEvent) -> None:
 def main() -> int:
     manager = ConnectionManager(on_event=on_event)
     try:
-        transport = manager.resolve(sys.argv[1] if len(sys.argv) > 1 else None)
-        adb = adbutils.AdbClient(host="127.0.0.1", port=manager.settings.server_port)
-        device = adb.device(serial=transport.address)
-        print(device.shell("getprop ro.product.model"))
+        transport = manager.ensure_connected(sys.argv[1] if len(sys.argv) > 1 else None)
+        result = manager.run(["shell", "getprop", "ro.product.model"], device=transport)
+        print(result.stdout.strip())
     except DroidockError as exc:
         print(f"{exc.code}: {exc}", file=sys.stderr)
         return 1

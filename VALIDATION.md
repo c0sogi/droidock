@@ -1,5 +1,32 @@
 # Droidock validation
 
+## 0.1.2 library extensions — 2026-09-10
+
+This section records local validation of the 0.1.2 library extensions.
+The existing profile storage format and profile IDs are retained.
+
+| Check | Result |
+|---|---|
+| Windows, Python 3.12.12: `uv run --no-sync pytest -q` | 203 passed, including 57 new cases. |
+| Windows, Python 3.11.15: `uv run --isolated --python 3.11 --locked pytest -q` | 203 passed. |
+| Ruff, Ruff format, isort, Pyright | Passed; Pyright reported zero errors and warnings. |
+| `uv lock --check` | Passed. |
+| Source distribution and wheel build with `--no-sources` | Passed. |
+| Isolated wheel verifier outside the checkout, empty `PATH` | Passed; bundled ADB resolved. |
+
+New tests exercise unregistered acquisition, caller-defined criteria, saved-address resolution, unavailable
+defaults, disabled automatic connection, USB/wireless grouping, conflicting identifiers, nonpersistent use of
+unidentified connections, grouped pairing, public command dispatch, alternate addresses, and discovery failure.
+They also verify real interface prefix handling using controlled interface data, bounded IPv4 enumeration,
+explicit scoped IPv6 queries, DNS address records, provider composition, command output/error contracts,
+redaction, and CLI acquisition through the shared library workflow.
+
+The new connection and network cases use test backends, mocked interfaces, and controlled socket responses.
+They do not establish physical-device recovery, live unicast mDNS support on a particular device, or APK
+installation. Cross-platform CI results are available on the repository's Actions page for the release commit.
+
+## Published baseline
+
 Release: **0.1.1**. Date: **2026-09-09**.
 Local environment: Windows x64, Python 3.12.12, uv, and adbutils 2.12.0.
 

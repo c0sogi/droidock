@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "droidock"
-version = "0.1.1"
+version = "0.1.2"
 description = "Reusable Android connection management with an interactive CLI."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,7 +17,9 @@ classifiers = [
 ]
 dependencies = [
   "adbutils>=2.12,<3",
+  "dnspython>=2.8,<3",
   "filelock>=3.18,<4",
+  "ifaddr>=0.2,<1",
   "platformdirs>=4,<5",
   "questionary>=2.1,<3",
   "rich>=14,<16",

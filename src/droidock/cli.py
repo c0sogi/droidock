@@ -121,23 +121,20 @@ def register(
 def connect(
     ctx: typer.Context,
     device: Annotated[
-        str | None, typer.Argument(help="Saved name, device ID, or serial. Omit to use the default device.")
+        str | None,
+        typer.Argument(help="Saved name, device ID, serial, or address. Omit to select automatically."),
     ] = None,
     endpoint: Annotated[
         str | None, typer.Option(help="Current connection IP:port, separate from the pairing port.")
     ] = None,
-    name: Annotated[str | None, typer.Option(help="Name to assign when registering a new device.")] = None,
+    name: Annotated[str | None, typer.Option(help="Name to save or update for the selected device.")] = None,
     json_output: JsonOutput = False,
 ) -> None:
     """Connect to the selected device and verify its identity."""
     current = manager(ctx)
-    if endpoint:
-        expected = current.device(device) if device else None
-        record = current.connect_endpoint(endpoint, name=name, expected=expected)
-    else:
-        if name:
-            raise DroidockError("Use --name together with --endpoint to register a device at a new address.")
-        record = current.connect(device)
+    transport = current.ensure_connected(device, endpoint=endpoint, name=name)
+    assert transport.identity is not None
+    record = current.device(transport.identity.serial)
     if json_output:
         emit(asdict(record))
     else:

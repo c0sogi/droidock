@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -76,6 +76,56 @@ class Transport:
     @property
     def wireless(self) -> bool:
         return endpoint_or_none(self.address) is not None or "._tcp" in self.address
+
+
+@dataclass(frozen=True)
+class DeviceCriteria:
+    """Optional caller-supplied constraints; no manufacturer or model is built in.
+
+    String fields use case-insensitive exact matching. The predicate can inspect
+    additional identity properties. Unknown identity only matches empty criteria.
+    """
+
+    models: tuple[str, ...] = ()
+    manufacturers: tuple[str, ...] = ()
+    serials: tuple[str, ...] = ()
+    predicate: Callable[[Identity], bool] | None = field(default=None, repr=False, compare=False)
+
+    def matches(self, identity: Identity | None) -> bool:
+        if identity is None:
+            return not (self.models or self.manufacturers or self.serials or self.predicate)
+        for observed, allowed in (
+            (identity.model, self.models),
+            (identity.manufacturer, self.manufacturers),
+            (identity.serial, self.serials),
+        ):
+            if allowed and observed.casefold() not in {value.casefold() for value in allowed}:
+                return False
+        return self.predicate is None or self.predicate(identity)
+
+
+@dataclass(frozen=True)
+class TransportGroup:
+    """Related responding connections, or an individual unidentifiable connection.
+
+    Conflicting observations remain separate and carry a reason for the caller's UI.
+    """
+
+    transports: tuple[Transport, ...]
+    conflict: str = ""
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    """Captured ADB output. Pairing input is redacted from both output streams."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
+    @property
+    def output(self) -> str:
+        return "\n".join(value.strip() for value in (self.stdout, self.stderr) if value.strip())
 
 
 class ServiceKind(StrEnum):

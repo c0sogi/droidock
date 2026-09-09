@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import importlib.resources
+import math
 import os
 import re
 import shutil
 import socket
 import subprocess
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .errors import DroidockError
 from .models import (
     ADB_SERVICE_KINDS,
+    CommandResult,
     Identity,
     PairResult,
     Service,
@@ -43,7 +46,8 @@ def parse_services(text: str) -> list[Service]:
 class AdbBackend:
     """ADB adapter with bundled executable discovery and time-limited subprocesses.
 
-    Existing compatible servers are reused. No operation kills the shared ADB server.
+    Existing compatible servers are reused. Connection recovery never kills the shared server.
+    Commands explicitly passed to run() remain the caller's responsibility.
     Pairing secrets go through stdin and are removed from exception messages.
     """
 
@@ -140,17 +144,56 @@ class AdbBackend:
                 code="server_unavailable",
             ) from exc
 
-    def _run(self, *arguments: str, input_text: str | None = None, timeout: float | None = None) -> str:
-        executable = self.executable
-        self._check_server()
+    @staticmethod
+    def environment() -> dict[str, str]:
+        """Environment for the selected local server; does not modify the parent process."""
         environment = os.environ.copy()
         # Explicitly select the checked local server, including when a parent app uses a remote server.
         environment.pop("ADB_SERVER_SOCKET", None)
         environment.pop("ANDROID_ADB_SERVER_ADDRESS", None)
         environment.pop("ANDROID_ADB_SERVER_PORT", None)
+        return environment
+
+    def command(self, arguments: Sequence[str], *, serial: str | None = None) -> list[str]:
+        """Prepare argv for streaming/Popen clients, verifying the selected server first."""
+        if isinstance(arguments, str) or not arguments or any(not isinstance(arg, str) for arg in arguments):
+            raise DroidockError(
+                "Pass ADB arguments as a nonempty sequence of strings.", code="invalid_command"
+            )
+        executable = self.executable
+        self._check_server()
         # Even '-H 127.0.0.1' makes ADB refuse to start a missing server as a "remote host".
         # Removing remote-server overrides and using -P selects localhost and permits startup.
-        command = [str(executable), "-P", str(self.settings.server_port), *arguments]
+        return [
+            str(executable),
+            "-P",
+            str(self.settings.server_port),
+            *(["-s", serial] if serial else []),
+            *arguments,
+        ]
+
+    def run(
+        self,
+        arguments: Sequence[str],
+        *,
+        serial: str | None = None,
+        input_text: str | None = None,
+        timeout: float | None = None,
+        cwd: str | Path | None = None,
+        check: bool = True,
+    ) -> CommandResult:
+        """Execute ADB without a shell, returning separate output streams and exit status.
+
+        timeout=None uses the configured default; longer positive timeouts support
+        installations and file transfers. check=False returns nonzero exit codes.
+        Explicit commands are controlled by the caller; recovery never kills servers.
+        """
+        timeout = self.settings.command_timeout if timeout is None else timeout
+        if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
+            raise DroidockError(
+                "The command timeout must be a finite positive number.", code="invalid_setting"
+            )
+        command = self.command(arguments, serial=serial)
         try:
             result = subprocess.run(
                 command,
@@ -159,8 +202,9 @@ class AdbBackend:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=timeout or self.settings.command_timeout,
-                env=environment,
+                timeout=timeout,
+                env=self.environment(),
+                cwd=cwd,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 check=False,
             )
@@ -168,13 +212,21 @@ class AdbBackend:
             raise DroidockError("The device did not respond within the timeout.", code="timeout") from exc
         except OSError as exc:
             raise DroidockError(f"Failed to run ADB: {exc}", code="adb_failed") from exc
-        output = "\n".join(x.strip() for x in (result.stdout, result.stderr) if x.strip())
-        if input_text:
-            output = output.replace(input_text.strip(), "[REDACTED]")
-        if result.returncode:
-            code = "unauthorized" if "unauthorized" in output.lower() else "adb_failed"
-            raise DroidockError(output[-2500:] or "The ADB command failed.", code=code)
-        return output
+        secret = input_text.strip() if input_text else ""
+        captured = CommandResult(
+            result.returncode,
+            (result.stdout or "").replace(secret, "[REDACTED]") if secret else (result.stdout or ""),
+            (result.stderr or "").replace(secret, "[REDACTED]") if secret else (result.stderr or ""),
+        )
+        if check and captured.returncode:
+            code = "unauthorized" if "unauthorized" in captured.output.lower() else "adb_failed"
+            from .errors import CommandError
+
+            raise CommandError(captured, code=code)
+        return captured
+
+    def _run(self, *arguments: str, input_text: str | None = None, timeout: float | None = None) -> str:
+        return self.run(arguments, input_text=input_text, timeout=timeout).output
 
     def inspect(self, address: str) -> Transport:
         output = self._run("-s", address, "shell", "getprop")

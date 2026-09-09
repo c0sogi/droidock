@@ -1,32 +1,37 @@
 from __future__ import annotations
 
 import threading
-import time
 import uuid
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from pathlib import Path
 
 from .adb import AdbBackend
 from .discovery import MdnsDiscovery
-from .errors import DroidockError, IdentityError
-from .interfaces import Backend, Discovery
+from .errors import DroidockError, IdentityError, SelectionError
+from .interfaces import Backend, CommandBackend, Discovery
 from .models import (
     AutoConnectReport,
+    CommandResult,
     ConnectionEvent,
+    DeviceCriteria,
     DeviceRecord,
     PairResult,
     Service,
+    ServiceGroup,
     ServiceKind,
     Settings,
     Snapshot,
     State,
     Transport,
+    TransportGroup,
     endpoint_or_none,
     normalize_endpoint,
     utc_now,
     valid_serial,
 )
+from .selection import ensure_connected, group_transports, select_service
 from .store import DeviceStore
 
 
@@ -84,9 +89,136 @@ class ConnectionManager:
             for d in state.devices
             if selector in (d.id, d.serial) or d.name.casefold() == selector.casefold()
         ]
-        if len(matches) != 1:
+        if not matches:
+            endpoint = endpoint_or_none(selector)
+            matches = [d for d in state.devices if endpoint and endpoint in d.endpoints]
+        if len(matches) > 1:
+            raise SelectionError(
+                "Several saved profiles match this selector. Select a profile ID or unique name.",
+                code="ambiguous_device",
+                candidates=tuple(d.id for d in matches),
+            )
+        if not matches:
             raise DroidockError(f"Cannot identify a single saved device: {selector}", code="device_not_found")
         return matches[0]
+
+    def ensure_connected(
+        self,
+        selector: str | None = None,
+        *,
+        endpoint: str | None = None,
+        criteria: DeviceCriteria | None = None,
+        name: str | None = None,
+        remember: bool = True,
+        reconnect: bool = True,
+        discover: bool = True,
+        prefer_usb: bool = True,
+        attempts: int | None = None,
+    ) -> Transport:
+        """Select, validate, connect, and optionally save a current or discovered device.
+
+        No prompts or terminal output. Explicit requests/default profiles never fall
+        back to an unrelated device. remember=False leaves all profiles unchanged.
+        """
+        return ensure_connected(
+            self,
+            selector,
+            endpoint=endpoint,
+            criteria=criteria,
+            name=name,
+            remember=remember,
+            reconnect=reconnect,
+            discover=discover,
+            prefer_usb=prefer_usb,
+            attempts=attempts,
+        )
+
+    def device_groups(
+        self,
+        *,
+        criteria: DeviceCriteria | None = None,
+        prefer_usb: bool = True,
+    ) -> list[TransportGroup]:
+        """List responding devices, without discovery, registration, or connection attempts."""
+        groups = group_transports(self.backend.transports(), prefer_usb=prefer_usb)
+        return [
+            g for g in groups if criteria is None or any(criteria.matches(t.identity) for t in g.transports)
+        ]
+
+    def run(
+        self,
+        arguments: Sequence[str],
+        *,
+        device: str | Transport | None = None,
+        criteria: DeviceCriteria | None = None,
+        input_text: str | None = None,
+        timeout: float | None = None,
+        cwd: str | Path | None = None,
+        check: bool = True,
+    ) -> CommandResult:
+        """Run a command on a selected device or a previously acquired transport."""
+        if not isinstance(self.backend, CommandBackend):
+            raise DroidockError(
+                "This backend does not support command execution.", code="unsupported_operation"
+            )
+        transport = (
+            device if isinstance(device, Transport) else self.ensure_connected(device, criteria=criteria)
+        )
+        if criteria is not None and not criteria.matches(transport.identity):
+            raise DroidockError("The device does not match the command criteria.", code="criteria_mismatch")
+        return self.backend.run(
+            arguments,
+            serial=transport.address,
+            input_text=input_text,
+            timeout=timeout,
+            cwd=cwd,
+            check=check,
+        )
+
+    def discover_services(self) -> list[Service]:
+        """Merge independent service sources without changing profiles or connections."""
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            adb = executor.submit(self.backend.services)
+            discovered = executor.submit(self.discovery.discover, self.settings.discovery_seconds)
+            services: list[Service] = []
+            errors: list[str] = []
+            try:
+                services.extend(adb.result())
+            except DroidockError as exc:
+                errors.append(str(exc))
+            try:
+                extra, warnings = discovered.result()
+                services.extend(extra)
+                errors.extend(warnings)
+            except (DroidockError, OSError) as exc:
+                errors.append(str(exc))
+        if not services and errors:
+            raise DroidockError("Wireless discovery failed.\n" + "\n".join(errors), code="discovery_failed")
+        return sorted(set(services), key=lambda s: (s.kind, s.instance, s.endpoint, s.source))
+
+    def select_service(self, kind: ServiceKind, selector: str | None = None) -> ServiceGroup:
+        """Select a discovered service, returning all addresses for one purpose/instance."""
+        from .models import group_services
+
+        return select_service(group_services(self.discover_services()), kind, selector)
+
+    def pair_discovered(self, code: str, selector: str | None = None) -> PairResult:
+        """Select a pairing service and try its addresses; never use a connection port."""
+        import re
+
+        if not re.fullmatch(r"\d{6}", code):
+            raise DroidockError("Enter the six-digit pairing code shown on the device.", code="invalid_code")
+        service = self.select_service(ServiceKind.PAIRING, selector)
+        for index, address in enumerate(service.endpoints[:3]):
+            try:
+                return self.pair(address, code)
+            except DroidockError as exc:
+                if (
+                    exc.code not in {"timeout", "adb_failed", "connect_failed"}
+                    or index == min(3, len(service.endpoints)) - 1
+                ):
+                    raise
+        raise DroidockError("No pairing addresses are available.", code="service_not_found")
 
     def _remember(
         self, transport: Transport, *, create: bool = False, name: str | None = None
@@ -214,69 +346,19 @@ class ConnectionManager:
         )
 
     def connect(self, selector: str | None = None, *, attempts: int | None = None) -> DeviceRecord:
-        """Reconnect a saved identity. An unrelated connected Android device never satisfies this request."""
+        """Reconnect a saved profile using the shared selection workflow."""
         record = self.device(selector)
-        attempts = attempts if attempts is not None else self.settings.connect_attempts
-        if not 1 <= attempts <= 5:
-            raise DroidockError("Connection attempts must be between 1 and 5.", code="invalid_setting")
-        failures: list[str] = []
-        for attempt in range(attempts):
-            self._emit("searching", record, f"Searching for device ({attempt + 1}/{attempts})")
-            snapshot = self.scan()
-            for transport in snapshot.transports:
-                if transport.ready and transport.identity and record.matches(transport.identity):
-                    result = self._remember(transport)
-                    self._emit(
-                        "connected",
-                        result,
-                        "Device serial number and command response verified.",
-                        transport.address,
-                    )
-                    return result
-                if transport.address == record.serial and transport.state == "offline":
-                    try:
-                        self.backend.reconnect(transport.address)
-                    except DroidockError as exc:
-                        failures.append(str(exc))
-            current = [s.endpoint for s in snapshot.services if self._service_matches(s, record)]
-            # Current discovery has priority over remembered ports, which are just fallback candidates.
-            endpoints = list(dict.fromkeys([*current, *self.device(record.id).endpoints]))[:3]
-            for endpoint in endpoints:
-                self._emit("connecting", record, "Connecting and verifying device identity.", endpoint)
-                try:
-                    result = self.connect_endpoint(endpoint, expected=record)
-                    self._emit("connected", result, "Connection verified.", endpoint)
-                    return result
-                except DroidockError as exc:
-                    failures.append(str(exc))
-            failures.extend(snapshot.warnings)
-            if attempt + 1 < attempts:
-                time.sleep(min(attempt + 1, 3))
-        detail = "\n".join(list(dict.fromkeys(failures))[-3:])
-        self._emit("unavailable", record, "Could not connect to the saved device.")
-        raise DroidockError(
-            f"Could not connect to {record.name}. Check debugging settings, authorization, and network connectivity."
-            f"\nIf discovery finds no address, enter the current connection address shown on the device.\n{detail}",
-            code="device_unavailable",
-        )
+        self.ensure_connected(record.id, attempts=attempts)
+        return self.device(record.id)
 
     def pair(self, endpoint: str, code: str) -> PairResult:
         """Pairing grants ADB trust, but does not claim the device is connected or registered."""
         return self.backend.pair(normalize_endpoint(endpoint), code)
 
     def resolve(self, selector: str | None = None, *, reconnect: bool = True) -> Transport:
-        """Return a verified current transport for another project's ADB operations.
-
-        Prefer USB when the same physical device has both USB and Wi-Fi connections.
-        The returned address is an ADB transport selector, not the persistent device ID.
-        """
-        record = self.connect(selector) if reconnect else self.device(selector)
-        matches = [
-            t for t in self.backend.transports() if t.ready and t.identity and record.matches(t.identity)
-        ]
-        if not matches:
-            raise DroidockError("The selected device is no longer connected.", code="device_unavailable")
-        return sorted(matches, key=lambda t: (t.wireless, t.address))[0]
+        """Resolve a saved profile; use ensure_connected for unregistered devices too."""
+        record = self.device(selector)
+        return self.ensure_connected(record.id, reconnect=reconnect)
 
     def auto_connect(self) -> AutoConnectReport:
         """One bounded attempt per opted-in device; intended for startup or an application's own loop."""
