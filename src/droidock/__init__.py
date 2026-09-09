@@ -21,7 +21,7 @@ from .portscan import AdbPortScanner, PortScanProgress, PortScanStatus, preferre
 from .store import DeviceStore
 from .tailscale import TailscaleClient, TailscalePeer
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = [
     "AdbPortScanner",
     "DroidockError",

@@ -1,6 +1,6 @@
 # Droidock validation
 
-Release: **0.1.0**. Date: **2026-09-09**.
+Release: **0.1.1**. Date: **2026-09-09**.
 Local environment: Windows x64, Python 3.12.12, uv, and adbutils 2.12.0.
 
 ## Automated checks
@@ -36,13 +36,13 @@ Build and validate the distribution from a source checkout:
 
 ```powershell
 uv build --no-sources
-uvx --from twine twine check --strict dist/droidock-0.1.0-py3-none-any.whl dist/droidock-0.1.0.tar.gz
+uvx --from twine twine check --strict dist/droidock-0.1.1-py3-none-any.whl dist/droidock-0.1.1.tar.gz
 ```
 
 Run `scripts/verify_wheel.py` from outside the checkout with only the built wheel installed:
 
 ```powershell
-uv run --isolated --no-project --with C:/Projects/droidock/dist/droidock-0.1.0-py3-none-any.whl python C:/Projects/droidock/scripts/verify_wheel.py
+uv run --isolated --no-project --with C:/Projects/droidock/dist/droidock-0.1.1-py3-none-any.whl python C:/Projects/droidock/scripts/verify_wheel.py
 ```
 
 The verifier checks distribution metadata, the `droidock` entry point, public API imports without terminal
