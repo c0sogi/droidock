@@ -1,5 +1,15 @@
 # Droidock validation
 
+## 0.1.3 explicit server recovery - 2026-09-10
+
+- Added the interactive restart action, `restart-server` command, and optional server-control API.
+- Windows Python 3.11 and 3.12: 218 tests passed on each, including 15 new recovery cases.
+- Ruff, formatting, isort, and Pyright passed.
+- Tests cover port selection, timeout/failure boundaries, post-start server verification,
+  confirmation/cancellation, opt-in reconnection, profile preservation, and partial failures.
+- The running shared ADB server was not restarted; physical-device recovery remains unverified.
+- Included in release 0.1.3; the profile storage format and existing device IDs are unchanged.
+
 ## 0.1.2 library extensions — 2026-09-10
 
 This section records local validation of the 0.1.2 library extensions.
@@ -25,12 +35,12 @@ The new connection and network cases use test backends, mocked interfaces, and c
 They do not establish physical-device recovery, live unicast mDNS support on a particular device, or APK
 installation. Cross-platform CI results are available on the repository's Actions page for the release commit.
 
-## Published baseline
+## Historical 0.1.1 baseline
 
 Release: **0.1.1**. Date: **2026-09-09**.
 Local environment: Windows x64, Python 3.12.12, uv, and adbutils 2.12.0.
 
-## Automated checks
+### Automated checks for 0.1.1
 
 | Command | Result |
 |---|---|
@@ -63,13 +73,13 @@ Build and validate the distribution from a source checkout:
 
 ```powershell
 uv build --no-sources
-uvx --from twine twine check --strict dist/droidock-0.1.1-py3-none-any.whl dist/droidock-0.1.1.tar.gz
+uvx --from twine twine check --strict dist/droidock-0.1.3-py3-none-any.whl dist/droidock-0.1.3.tar.gz
 ```
 
 Run `scripts/verify_wheel.py` from outside the checkout with only the built wheel installed:
 
 ```powershell
-uv run --isolated --no-project --with C:/Projects/droidock/dist/droidock-0.1.1-py3-none-any.whl python C:/Projects/droidock/scripts/verify_wheel.py
+uv run --isolated --no-project --with C:/Projects/droidock/dist/droidock-0.1.3-py3-none-any.whl python C:/Projects/droidock/scripts/verify_wheel.py
 ```
 
 The verifier checks distribution metadata, the `droidock` entry point, public API imports without terminal

@@ -10,7 +10,7 @@ from pathlib import Path
 from .adb import AdbBackend
 from .discovery import MdnsDiscovery
 from .errors import DroidockError, IdentityError, SelectionError
-from .interfaces import Backend, CommandBackend, Discovery
+from .interfaces import Backend, CommandBackend, Discovery, ServerControlBackend
 from .models import (
     AutoConnectReport,
     CommandResult,
@@ -372,6 +372,20 @@ class ConnectionManager:
             except DroidockError as exc:
                 report.errors[device.id] = str(exc)
         return report
+
+    def restart_server(self, *, reconnect: bool = True) -> AutoConnectReport:
+        """Explicitly restart the backend server and reconnect opted-in saved devices.
+
+        This interrupts all clients sharing that server. Never called by scans,
+        startup, or normal connection retries. No prompts; the caller owns consent.
+        Profiles and pairing credentials are retained. Partial reconnect failures
+        are returned separately from a failed server restart, which raises.
+        """
+        if not isinstance(self.backend, ServerControlBackend):
+            raise DroidockError("This backend cannot restart its server.", code="unsupported_operation")
+        self.store.read()  # Reject unreadable profiles before disrupting active clients.
+        self.backend.restart_server()
+        return self.auto_connect() if reconnect else AutoConnectReport()
 
     def watch(self, *, interval: float = 5, stop: threading.Event | None = None) -> Iterator[Snapshot]:
         """Foreground, stoppable reconnection loop; no OS startup service is installed."""

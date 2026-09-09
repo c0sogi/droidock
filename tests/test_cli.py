@@ -117,7 +117,7 @@ def test_real_arrow_key_exit_does_not_scan_or_prompt_again(rig, monkeypatch):
     with patch.object(manager, "scan", wraps=manager.scan) as scan:
         with create_pipe_input() as pipe:
             with create_app_session(input=pipe, output=DummyOutput()):
-                pipe.send_text("\x1b[B" * 7 + "\r")
+                pipe.send_text("\x1b[A\r")  # Exit is always the last item, even as actions are added.
                 menu.run()
     assert len(prompts) == 1
     assert scan.call_count == 1

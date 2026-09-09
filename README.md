@@ -169,6 +169,7 @@ JSON pairing requires an explicit address and `--code-stdin`, so prompts do not 
 | `droidock profile "Office XR" --no-auto-connect` | Disable automatic connection for this device. |
 | `droidock disconnect "Office XR"` | Disconnect verified wireless connections and disable automatic connection. |
 | `droidock diagnose` | Show ADB, server, and device diagnostics with connection guidance. |
+| `droidock restart-server` | Confirm a local ADB server restart, then reconnect saved devices with automatic connection enabled. |
 | `droidock settings` | Show connection settings and the storage path. |
 | `droidock settings adb_path auto` | Prefer bundled ADB. |
 | `droidock forget "Office XR"` | Confirm and delete the saved profile from this PC. |
@@ -178,6 +179,46 @@ Prefix commands with `uv run` when working in the project. From another director
 ```powershell
 uv run --project C:\Projects\droidock droidock
 ```
+
+### Explicit server recovery (0.1.3)
+
+Choose **Restart ADB server and reconnect** when the ADB server or its discovery
+state appears stuck. The menu explains that other apps sharing the selected local
+server port will briefly lose their connections, then asks for confirmation.
+Saved profiles, aliases, default selection, and pairing credentials are kept.
+After restarting, Droidock verifies the server response and makes one bounded
+connection attempt for each saved device with automatic connection enabled.
+Disabled profiles are skipped; individual failures are shown without discarding
+successful reconnections. The menu then refreshes discovery explicitly.
+
+This action is never triggered by startup, scans, or ordinary connection retries.
+It restarts only the configured local server port and uses the selected ADB
+executable; it does not terminate every ADB process on the PC. Each stop/start
+command has a timeout of at least 20 seconds (or the configured command timeout
+if longer). A restart cannot remove multicast restrictions imposed by the network.
+
+```powershell
+uv run droidock restart-server
+uv run droidock restart-server --yes --json
+```
+
+`--json` requires `--yes`. Exit code 1 means that the server restart or at least one
+reconnection failed. A successful restart with partial connection failures has
+`server_restarted: true` and per-device `errors` in its JSON result.
+
+Applications can expose the same explicit action without terminal dependencies:
+
+```python
+from droidock import ConnectionManager
+
+manager = ConnectionManager()
+# Call only after the user requests recovery; this interrupts other server clients.
+report = manager.restart_server()
+# Use manager.restart_server(reconnect=False) to restart without reconnecting profiles.
+```
+
+Custom backends may implement the optional `ServerControlBackend` protocol.
+Unsupported backends raise `DroidockError` with code `unsupported_operation`.
 
 For scripted pairing, use `pair IP:PORT --code-stdin` and send the code through standard input. Successful pairing
 confirms the trust exchange; a subsequent connection must still verify the device response. The default command

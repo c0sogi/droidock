@@ -3,7 +3,7 @@
 from .adb import AdbBackend
 from .discovery import MdnsDiscovery
 from .errors import CommandError, DroidockError, IdentityError, SelectionError
-from .interfaces import Backend, CommandBackend, Discovery
+from .interfaces import Backend, CommandBackend, Discovery, ServerControlBackend
 from .manager import ConnectionManager
 from .models import (
     AutoConnectReport,
@@ -28,10 +28,11 @@ from .selection import group_transports, select_service
 from .store import DeviceStore
 from .tailscale import TailscaleClient, TailscalePeer
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __all__ = [
     "AdbBackend",
     "CommandBackend",
+    "ServerControlBackend",
     "CommandError",
     "CommandResult",
     "CompositeDiscovery",

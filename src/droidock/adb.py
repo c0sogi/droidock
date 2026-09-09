@@ -46,7 +46,7 @@ def parse_services(text: str) -> list[Service]:
 class AdbBackend:
     """ADB adapter with bundled executable discovery and time-limited subprocesses.
 
-    Existing compatible servers are reused. Connection recovery never kills the shared server.
+    Existing compatible servers are reused. Automatic connection recovery never kills the shared server.
     Commands explicitly passed to run() remain the caller's responsibility.
     Pairing secrets go through stdin and are removed from exception messages.
     """
@@ -103,12 +103,16 @@ class AdbBackend:
         self._executable = candidate.resolve()
         return self._executable
 
-    def _check_server(self) -> None:
+    def _check_server(self, *, require_running: bool = False) -> None:
         try:
             # Windows can take about a second to reject a closed localhost port.
             # A shorter timeout would mistake an absent server for an unresponsive one.
             connection = socket.create_connection(("127.0.0.1", self.settings.server_port), timeout=3)
         except ConnectionRefusedError:
+            if require_running:
+                raise DroidockError(
+                    "The ADB server did not start listening.", code="server_unavailable"
+                ) from None
             return
         except OSError as exc:
             raise DroidockError(f"Cannot reach the ADB server: {exc}", code="server_unavailable") from exc
@@ -186,7 +190,7 @@ class AdbBackend:
 
         timeout=None uses the configured default; longer positive timeouts support
         installations and file transfers. check=False returns nonzero exit codes.
-        Explicit commands are controlled by the caller; recovery never kills servers.
+        Explicit commands are controlled by the caller; automatic recovery never kills servers.
         """
         timeout = self.settings.command_timeout if timeout is None else timeout
         if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
@@ -194,6 +198,17 @@ class AdbBackend:
                 "The command timeout must be a finite positive number.", code="invalid_setting"
             )
         command = self.command(arguments, serial=serial)
+        return self._execute(command, input_text=input_text, timeout=timeout, cwd=cwd, check=check)
+
+    def _execute(
+        self,
+        command: Sequence[str],
+        *,
+        timeout: float,
+        input_text: str | None = None,
+        cwd: str | Path | None = None,
+        check: bool = True,
+    ) -> CommandResult:
         try:
             result = subprocess.run(
                 command,
@@ -224,6 +239,25 @@ class AdbBackend:
 
             raise CommandError(captured, code=code)
         return captured
+
+    def restart_server(self) -> None:
+        """Explicitly restart only the configured local server, interrupting its clients.
+
+        Bypass the normal server compatibility/health check so an unhealthy or
+        incompatible server can be recovered. Never kill processes by name.
+        Validate the replacement executable before stopping anything.
+        """
+        command = [str(self.executable), "-P", str(self.settings.server_port)]
+        timeout = max(20.0, self.settings.command_timeout)
+        for operation in ("kill-server", "start-server"):
+            try:
+                self._execute([*command, operation], timeout=timeout)
+            except DroidockError as exc:
+                raise DroidockError(
+                    f"ADB server restart failed during {operation}: {exc}",
+                    code="server_restart_failed",
+                ) from exc
+        self._check_server(require_running=True)
 
     def _run(self, *arguments: str, input_text: str | None = None, timeout: float | None = None) -> str:
         return self.run(arguments, input_text=input_text, timeout=timeout).output

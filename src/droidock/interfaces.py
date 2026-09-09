@@ -25,6 +25,13 @@ class Discovery(Protocol):
 
 
 @runtime_checkable
+class ServerControlBackend(Protocol):
+    """Optional explicit server recovery; ordinary connection backends need not support it."""
+
+    def restart_server(self) -> None: ...
+
+
+@runtime_checkable
 class CommandBackend(Protocol):
     """Optional command capability; discovery-only test/custom backends remain valid."""
 

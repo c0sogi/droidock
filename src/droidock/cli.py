@@ -216,6 +216,37 @@ def diagnose(ctx: typer.Context, json_output: JsonOutput = False) -> None:
         show_diagnostics(console, report)
 
 
+@app.command("restart-server")
+@guarded
+def restart_server(
+    ctx: typer.Context,
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Confirm interruption of all clients on this ADB server.")
+    ] = False,
+    json_output: JsonOutput = False,
+) -> None:
+    """Restart the selected local ADB server and reconnect saved auto-connect devices."""
+    current = manager(ctx)
+    port = current.settings.server_port
+    if not yes:
+        if json_output:
+            raise DroidockError(
+                "Pass --yes to confirm the server restart with --json.", code="confirmation_required"
+            )
+        if not typer.confirm(
+            f"Restart ADB server on port {port}? All apps using it will be disconnected.", default=False
+        ):
+            return
+    report = current.restart_server()
+    if json_output:
+        emit({"server_restarted": True, "server_port": port, **asdict(report)})
+    else:
+        console.print(f"ADB server on port {port} restarted.", style="green")
+        show_auto_connect(console, report, current.store.read().devices)
+    if report.errors:
+        raise typer.Exit(1)
+
+
 @app.command()
 @guarded
 def settings(

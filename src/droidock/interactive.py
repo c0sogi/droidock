@@ -385,6 +385,22 @@ class InteractiveCli:
             else:
                 self._tailscale_device(peers[int(selected)])
 
+    def restart_server(self) -> None:
+        port = self.manager.settings.server_port
+        self.console.print(
+            f"Restarting the local ADB server on port {port} interrupts all apps using it. "
+            "Saved profiles and pairing credentials will be kept.",
+            style="yellow",
+        )
+        if not self.confirm("Restart ADB server and reconnect saved devices?"):
+            return
+        self._snapshot = Snapshot([], [], [])  # Old connections are invalid after restarting.
+        with self.console.status("Restarting ADB server and reconnecting saved devices..."):
+            report = self.manager.restart_server()
+        self.console.print("ADB server restarted.", style="green")
+        show_auto_connect(self.console, report, self.manager.store.read().devices)
+        self._scan()
+
     def run(self) -> None:
         if not self.plain and not sys.stdin.isatty():
             raise DroidockError(
@@ -421,6 +437,7 @@ class InteractiveCli:
                         ("Connection diagnostics", "diagnose"),
                         ("Connection settings", "settings"),
                         ("Tailscale devices", "tailscale"),
+                        ("Restart ADB server and reconnect", "restart"),
                     ],
                     back="Exit",
                 )
@@ -439,6 +456,8 @@ class InteractiveCli:
                     self._scan()
                 elif action == "diagnose":
                     show_diagnostics(self.console, self.manager.diagnostics())
+                elif action == "restart":
+                    self.restart_server()
                 elif action == "settings":
                     self.settings()
                 elif action == "tailscale":
