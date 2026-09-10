@@ -21,11 +21,16 @@ from .models import (
     Identity,
     PairResult,
     Service,
+    ServiceGroup,
+    ServiceKind,
     Settings,
     Snapshot,
     Transport,
+    TransportGroup,
+    endpoint_or_none,
 )
 from .portscan import PortScanProgress, PortScanStatus
+from .selection import group_transports
 from .tailscale import TailscalePeer
 
 
@@ -213,63 +218,146 @@ def show_disconnected(console: Console, count: int) -> None:
     console.print("Automatic connection is disabled for this device. Unplug the cable to disconnect USB.")
 
 
+def _connection_status(transports: Iterable[Transport]) -> Text:
+    connections = list(transports)
+    if any(t.ready for t in connections):
+        return Text("🟢 Connected", style="green")
+    labels = {
+        "unauthorized": "Authorization required",
+        "offline": "Not responding",
+        "unresponsive": "No command response",
+        "no permissions": "USB permission required",
+        "device": "Serial unavailable",
+    }
+    if connections:
+        return Text(
+            "🟡 " + labels.get(connections[0].state, connections[0].state.capitalize()), style="yellow"
+        )
+    return Text("⚪ Not connected", style="dim")
+
+
+def _connection_addresses(transports: Iterable[Transport]) -> str:
+    lines = []
+    for transport in transports:
+        kind = "Wireless" if transport.wireless else "USB"
+        line = f"{kind}: {transport.address}"
+        if not transport.ready:
+            line += f" ({transport.state})"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _service_connected(service: ServiceGroup, transports: Iterable[Transport]) -> bool:
+    """Match current responding wireless transports, never serial guesses or saved addresses."""
+    if service.kind != ServiceKind.CONNECT:
+        return False
+    names = (
+        {
+            f"{service.instance.rstrip('.').casefold()}{suffix}{domain}"
+            for suffix in ("._adb-tls-connect._tcp", "._adb._tcp")
+            for domain in ("", ".local")
+        }
+        if service.instance
+        else set()
+    )
+    for transport in transports:
+        if not transport.ready or not transport.wireless:
+            continue
+        if endpoint_or_none(transport.address) in service.endpoints:
+            return True
+        if transport.address.rstrip(".").casefold() in names:
+            return True
+    return False
+
+
+def _device_groups(snapshot: Snapshot) -> tuple[dict[str, list[Transport]], list[TransportGroup]]:
+    groups = group_transports(snapshot.transports)
+    groups.extend(TransportGroup((t,)) for t in snapshot.transports if t.state != "device")
+    assigned: dict[str, list[Transport]] = {record.id: [] for record in snapshot.devices}
+    unknown: list[TransportGroup] = []
+    for group in groups:
+        identity = group.transports[0].identity
+        matches = [record for record in snapshot.devices if identity and record.matches(identity)]
+        if len(matches) == 1 and not group.conflict:
+            assigned[matches[0].id].extend(group.transports)
+        else:
+            unknown.append(group)
+    return assigned, unknown
+
+
 def show_snapshot(console: Console, snapshot: Snapshot, default_device: str | None = None) -> None:
-    table = _table("Saved Android devices", "Device", "Status", "Current connection", "Auto-connect")
+    """Always render two tables using only the existing snapshot; no device I/O."""
+    table = _table("Devices", "Device / serial", "Saved", "Status", "Connections", "Auto-connect")
+    table.title = Text("📱 Devices", style="bold cyan")
+    table.border_style = "cyan"
+    table.header_style = "bold cyan"
+    table.expand = True
+    assigned, unknown = _device_groups(snapshot)
     for record in snapshot.devices:
-        active = [
-            t.address for t in snapshot.transports if t.ready and t.identity and record.matches(t.identity)
-        ]
+        connections = assigned[record.id]
+        label = record.name + (" (default)" if record.id == default_device else "")
+        label += f"\n{record.model}\n{record.serial}" if record.model else f"\n{record.serial}"
+        addresses = _connection_addresses(connections)
+        if not addresses:
+            addresses = "\n".join(f"Last wireless: {endpoint}" for endpoint in record.endpoints)
+            addresses += ("\n" if addresses else "") + f"Last seen: {_last_seen(record.last_seen)}"
         table.add_row(
-            Text(record.name + (" (default)" if record.id == default_device else "")),
-            Text("Connected" if active else "Disconnected", style="green" if active else "yellow"),
-            Text("\n".join(active) or f"Last seen: {_last_seen(record.last_seen)}"),
+            Text(label),
+            Text("Yes"),
+            _connection_status(connections),
+            Text(addresses),
             _enabled(record.auto_connect),
         )
-    if snapshot.devices:
-        console.print(table)
-    else:
-        console.print(
-            "No saved devices. Connect a device over USB or select 'Add a device' to set up wireless pairing."
+    for group in unknown:
+        identity = group.transports[0].identity
+        label = f"{identity.model or 'Android'}\n{identity.serial}" if identity else "Unidentified device"
+        status = (
+            Text("🟡 Identity conflict", style="yellow")
+            if group.conflict
+            else _connection_status(group.transports)
         )
-    unknown = [
-        t
-        for t in snapshot.transports
-        if not t.identity or not any(d.matches(t.identity) for d in snapshot.devices)
-    ]
-    if unknown:
-        found = _table("Unregistered connections", "Device / connection address", "Status")
-        labels = {
-            "device": "Ready to register",
-            "unauthorized": "Authorization required on device",
-            "offline": "Not responding",
-            "unresponsive": "No command response",
-            "no permissions": "USB permission required",
-        }
-        groups: dict[str, list[Transport]] = {}
-        for transport in unknown:
-            key = transport.identity.serial if transport.identity else transport.address
-            groups.setdefault(key, []).append(transport)
-        for group in groups.values():
-            first = group[0]
-            label = f"{first.identity.model} ({first.identity.serial})\n" if first.identity else ""
-            status = (
-                labels.get(first.state, first.state)
-                if first.identity or first.state != "device"
-                else "Device serial number required"
-            )
-            found.add_row(Text(label + "\n".join(t.address for t in group)), Text(status))
-        console.print(found)
-    if snapshot.services:
-        services = _table("Nearby wireless debugging services", "Purpose", "Service name", "Addresses")
-        services.caption = "Each row is one service; it may advertise multiple addresses."
-        services.caption_justify = "left"
-        for service in snapshot.service_groups:
-            services.add_row(
-                Text(service.kind.value.capitalize()),
-                Text(service.instance),
-                Text("\n".join(service.endpoints)),
-            )
-        console.print(services)
+        table.add_row(
+            Text(label),
+            Text("No" if identity and not group.conflict else "Unverified"),
+            status,
+            Text(_connection_addresses(group.transports)),
+            Text("—", style="dim"),
+        )
+    if not snapshot.devices and not unknown:
+        table.add_row(Text("No devices", style="dim"), "—", "—", "—", "—")
+    table.caption = "Use 'Add a device' to save a connected device or set up wireless pairing."
+    if not snapshot.devices and not unknown:
+        table.caption = "No saved devices or detected ADB connections.\n" + table.caption
+    table.caption_justify = "left"
+    console.print(table)
+
+    services = _table("Wireless services", "Purpose", "Service name", "Status", "Addresses")
+    services.title = Text("📡 Wireless services", style="bold magenta")
+    services.box = box.SIMPLE_HEAVY
+    services.border_style = "dim magenta"
+    services.header_style = "bold magenta"
+    services.expand = True
+    services.caption = (
+        "Each row is one service; it may advertise multiple addresses.\n"
+        "Discovered does not confirm a connection. Connected means a responding ADB connection matches this service."
+    )
+    services.caption_justify = "left"
+    for service in snapshot.service_groups:
+        status = (
+            Text("🟢 Connected", style="green")
+            if _service_connected(service, snapshot.transports)
+            else Text("🔎 Discovered", style="cyan")
+        )
+        services.add_row(
+            Text(service.kind.value.capitalize()),
+            Text(service.instance or "Unnamed service"),
+            status,
+            Text("\n".join(service.endpoints)),
+        )
+    if not snapshot.services:
+        services.add_row(Text("No services", style="dim"), "—", "—", "—")
+        services.caption = "No wireless debugging services discovered."
+    console.print(services)
     for warning in snapshot.warnings:
         console.print(Text(f"Note: {warning}", style="yellow"))
 

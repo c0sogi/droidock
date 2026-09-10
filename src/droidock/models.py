@@ -75,7 +75,7 @@ class Transport:
 
     @property
     def wireless(self) -> bool:
-        return endpoint_or_none(self.address) is not None or "._tcp" in self.address
+        return endpoint_or_none(self.address) is not None or "._tcp" in self.address.casefold()
 
 
 @dataclass(frozen=True)

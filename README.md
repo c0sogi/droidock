@@ -18,11 +18,15 @@ path or provide ADB on `PATH`. The distribution has been verified on Windows x64
 
 ## First connection
 
-Use the arrow keys and Enter to navigate. For a numbered menu, run `uv run droidock --plain`.
+Use Tab to switch tables, the arrow keys to select a row, and Enter to open its actions.
+Press A to add a device or F2 for settings and other tools. For a numbered menu, run `uv run droidock --plain`.
 
-The main menu scans once on startup and keeps that snapshot while you browse menus or edit saved preferences.
-Select **Scan again** to refresh it. Registration, connection changes, and ADB server settings refresh the view
-when needed. **Back** and **Exit** do not start discovery. Use `uv run droidock --version` to check the
+The overview scans once on startup and keeps that snapshot while you browse menus or edit saved preferences.
+Press R/F5 or select **Scan again** to refresh it. Opening **Add a device** reuses that snapshot; its address
+picker also offers **Scan again**. Selecting a wireless service tries its displayed addresses first. If they
+fail, Droidock discovers that same service again and retries changed addresses. Successful pairing refreshes
+discovery to find the connection port. Registration and connection actions refresh ADB connection status.
+**Back** and **Exit** do not start discovery. Use `uv run droidock --version` to check the
 installed version; restart an already running CLI after updating it.
 
 Nearby services can advertise both IPv4 and IPv6 addresses. The table and selection menu show one entry per
@@ -50,6 +54,52 @@ entry or background service. Change per-device preferences under **Manage saved 
 under **Connection settings**. Disconnecting a saved device also disables its automatic connection preference.
 These settings control this tool's connection attempts; other applications and a shared ADB server can manage
 connections independently.
+
+## Device overview
+
+The interactive overview and `droidock devices` always show two tables, including when they are empty:
+
+**📱 Devices** uses a cyan bordered table; **📡 Wireless services** uses magenta headings and horizontal
+rules. The icons and different borders distinguish the tables even without color.
+
+- **Devices** combines saved profiles and detected ADB connections. It shows the device name and serial,
+  whether it is saved, its connection status, USB or wireless addresses, and automatic connection preference.
+  Matching USB and wireless connections share one row. Conflicting identities remain separate. Connections
+  whose identity cannot be read show **Unverified** in the Saved column.
+- **Wireless services** lists discovered connection and pairing services, grouping their IPv4 and IPv6
+  addresses. A service shows **🟢 Connected** only when a responding wireless ADB connection matches its
+  current address or full ADB service name. Otherwise it shows **🔎 Discovered**, which does not establish
+  whether a connection exists. USB connections, remembered addresses, and serial-like text in service names
+  do not mark a wireless service connected. Pairing services remain Discovered.
+
+Device states include **🟢 Connected**, **🟡 Authorization required**, and **⚪ Not connected**. Status text
+is always included alongside the icon. Saved devices remain visible when offline, with historical addresses
+labeled **Last wireless**. Rendering these tables does not trigger discovery, connect devices, or save profiles.
+Use **Scan again** to refresh the view and **Add a device** to register a device. JSON output is unchanged.
+
+In a supported terminal, both tables are selectable and scroll independently within a separate terminal screen.
+The selected row's serial, connection details, or service addresses appear below the tables. Long rows are
+shortened to fit the window; Enter opens their actions and details. The column headings and controls stay visible
+while scrolling, and the tables resize with the terminal.
+
+| Key | Action |
+| --- | --- |
+| Tab / Shift+Tab | Switch between Devices and Wireless services. |
+| Up / Down | Select the previous or next row. |
+| Page Up / Page Down | Move by one visible page. |
+| Home / End | Select the first or last row. |
+| Enter | Manage a saved device, save an unregistered connection, or connect/pair a service. |
+| R / F5 | Scan again. |
+| A | Add a device, including manual addresses. |
+| F2 | Open settings, diagnostics, Tailscale, and other actions. |
+| Q / Esc / Ctrl+C | Exit. |
+
+Mouse clicks select rows and the mouse wheel scrolls the table under the pointer in supported terminals.
+Returning to the overview clears
+the previous page, so repeated scans and actions do not accumulate in terminal history. Results such as
+connection details, diagnostics, and errors stay visible until you press Enter. Exiting, including Ctrl+C
+at the main menu, restores the previous terminal screen. `--plain`, redirected output, and terminals without screen-control support
+keep the normal scrolling output; standalone commands are unchanged.
 
 ## Tailscale devices
 

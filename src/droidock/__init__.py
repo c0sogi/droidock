@@ -28,7 +28,7 @@ from .selection import group_transports, select_service
 from .store import DeviceStore
 from .tailscale import TailscaleClient, TailscalePeer
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 __all__ = [
     "AdbBackend",
     "CommandBackend",

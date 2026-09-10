@@ -82,7 +82,7 @@ def test_discovery_table_shows_one_service_with_both_literal_addresses(services)
     show_snapshot(Console(file=output, width=120, color_system=None), Snapshot([], [], services))
     rendered = output.getvalue()
     assert rendered.count(INSTANCE) == 1
-    assert rendered.count("│ Connect ") == 1
+    assert sum(line.lstrip().startswith("Connect ") for line in rendered.splitlines()) == 1
     assert IPV4 in rendered and IPV6 in rendered
     assert "Each row is one service" in rendered
 
