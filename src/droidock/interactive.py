@@ -19,10 +19,11 @@ from .display import (
     show_disconnected,
     show_snapshot,
     show_tailscale_peers,
+    show_temporary_connection,
 )
 from .errors import DroidockError
 from .manager import ConnectionManager
-from .models import DeviceRecord, ServiceGroup, ServiceKind, Snapshot
+from .models import DeviceRecord, ServiceGroup, ServiceKind, Snapshot, Transport
 from .portscan import AdbPortScanner, PortScanStatus, endpoint_host, preferred_adb_ports
 from .tailscale import TailscaleClient, TailscalePeer
 
@@ -104,9 +105,9 @@ class InteractiveCli:
     def confirm(self, title: str) -> bool:
         return self.choose(title, [("Yes", "yes")], back="No") == "yes"
 
-    def _scan(self) -> Snapshot:
+    def _scan(self, *, update_saved: bool = True) -> Snapshot:
         with self.console.status("Discovering devices and current wireless addresses..."):
-            self._snapshot = self.manager.scan()
+            self._snapshot = self.manager.scan() if update_saved else self.manager.scan(update_saved=False)
         self._has_snapshot = True
         return self._snapshot
 
@@ -127,6 +128,33 @@ class InteractiveCli:
         self._connected(record)
         self._refresh_connections()
         self._pause()
+
+    def _connection_choice(self) -> str | None:
+        return self.choose(
+            "Wireless connection",
+            [("Connect without saving", "once"), ("Connect and save this device", "connect")],
+        )
+
+    def _connection_result(self, result: DeviceRecord | Transport) -> None:
+        if isinstance(result, DeviceRecord):
+            self._name(result)
+        else:
+            show_temporary_connection(self.console, result)
+            self.console.print("You can save this device later from the Devices table.")
+            self._refresh_connections()
+            self._pause()
+
+    def _connect_with_choice(
+        self, endpoints: tuple[str, ...], *, expected: DeviceRecord | None = None
+    ) -> None:
+        choice = self._connection_choice()
+        if choice is None:
+            return
+        with self.console.status("Connecting and verifying the device serial number..."):
+            result = self.manager.connect_endpoints(
+                endpoints, expected=expected, remember=choice == "connect"
+            )
+        self._connection_result(result)
 
     def _endpoints(self, snapshot: Snapshot, kind: ServiceKind) -> tuple[str, ...] | None:
         while True:
@@ -163,7 +191,7 @@ class InteractiveCli:
         with self.console.status("Pairing..."):
             paired = self.manager.pair(endpoints[0], code)
         self.console.print("Pairing completed. Looking up the current connection address.", style="green")
-        snapshot = self._scan()
+        snapshot = self._scan(update_saved=False)
         matches = [
             service
             for service in snapshot.service_groups
@@ -179,9 +207,7 @@ class InteractiveCli:
             )
             connection_endpoints = self._endpoints(snapshot, ServiceKind.CONNECT)
         if connection_endpoints:
-            with self.console.status("Connecting and verifying the device serial number..."):
-                record = self.manager.connect_endpoints(connection_endpoints)
-            self._name(record)
+            self._connect_with_choice(connection_endpoints)
         else:
             self._pause()
 
@@ -199,9 +225,7 @@ class InteractiveCli:
         elif action == "endpoint":
             endpoints = self._endpoints(self._snapshot, ServiceKind.CONNECT)
             if endpoints:
-                with self.console.status("Connecting and verifying the device serial number..."):
-                    record = self.manager.connect_endpoints(endpoints)
-                self._name(record)
+                self._connect_with_choice(endpoints)
         elif action == "connected":
             snapshot = self._snapshot
             choices: dict[str, tuple[str, str]] = {}
@@ -390,9 +414,7 @@ class InteractiveCli:
                     if any(endpoint_host(e) in peer.addresses for e in d.endpoints)
                 ]
                 expected = matches[0] if len(matches) == 1 else None
-                with self.console.status("Connecting and verifying the device serial number..."):
-                    record = self.manager.connect_endpoint(endpoint, expected=expected)
-                self._name(record)
+                self._connect_with_choice((endpoint,), expected=expected)
                 return
             except DroidockError as exc:
                 self.console.print(str(exc), style="red", markup=False)
@@ -473,16 +495,17 @@ class InteractiveCli:
             if self.choose("Pairing service", [("Pair using the code on the device", "pair")]) == "pair":
                 self.pair(service)
             return
-        if self.choose("Wireless connection", [("Connect and save this device", "connect")]) != "connect":
+        choice = self._connection_choice()
+        if choice is None:
             return
         try:
             with self.console.status("Connecting to the selected service..."):
-                record = self.manager.connect_endpoints(service.endpoints)
+                result = self.manager.connect_endpoints(service.endpoints, remember=choice == "connect")
         except DroidockError as exc:
             if exc.code not in {"connect_failed", "timeout", "adb_failed", "connection_error"}:
                 raise
             # A failed address may have changed. Refresh only then, and retain the exact selected service.
-            snapshot = self._scan()
+            snapshot = self._scan(update_saved=choice == "connect")
             matches = [
                 item
                 for item in snapshot.service_groups
@@ -492,8 +515,8 @@ class InteractiveCli:
             ]
             if len(matches) != 1 or matches[0].endpoints == service.endpoints:
                 raise
-            record = self.manager.connect_endpoints(matches[0].endpoints)
-        self._name(record)
+            result = self.manager.connect_endpoints(matches[0].endpoints, remember=choice == "connect")
+        self._connection_result(result)
 
     def _main_menu(self, *, back: str = "Exit") -> str | None:
         return self.choose(

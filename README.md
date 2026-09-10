@@ -40,7 +40,18 @@ saved device: registration still requires a responding device with a verified se
    **Pair device with pairing code** on the device.
 4. Select the pairing address in the CLI and enter the six-digit code. The code is hidden and is not saved.
 5. After pairing, connect to the device's **current connection address**. The pairing port and connection port differ.
-6. Give the device a name. The first registered device becomes the default, with automatic connection enabled.
+6. Choose **Connect without saving** or **Connect and save this device**. When saving, give the device a name.
+   The first registered device becomes the default, with automatic connection enabled.
+
+The same choice is available for wireless service rows, manually entered addresses, and Tailscale connections.
+**Connect without saving** verifies the connection without creating or updating a Droidock profile. It skips the
+name prompt; the connected device still appears in **Devices** and can be saved later from its row. Existing
+profiles retain their aliases, addresses, and automatic connection preferences. Exiting Droidock does not
+disconnect ADB. Wireless pairing may still persist ADB trust credentials independently of Droidock profiles.
+
+For scripts, `droidock connect --endpoint IP:PORT --no-save` connects without saving. `--save` remains the
+command-line default. `--name` requires saving. With `--no-save --json`, the result contains `saved: false`,
+`address`, `state`, and `identity`; the existing saved-profile JSON format is unchanged for normal connections.
 
 The interactive menu attempts to reconnect saved devices on subsequent launches. To keep checking connections
 while the program runs:
@@ -311,6 +322,12 @@ See [examples/integrate.py](https://github.com/c0sogi/droidock/blob/main/example
 ### Device acquisition and selection
 
 `ensure_connected(selector=None, ...)` owns selection, discovery, connection verification, and registration.
+
+`connect_endpoint(endpoint, remember=False)` and `connect_endpoints(endpoints, remember=False)` also support
+connections without profile writes and return a verified `Transport`. Their default `remember=True` behavior
+continues to return a saved `DeviceRecord`. `name` cannot be combined with `remember=False`; `expected` still
+enforces the requested device identity. Use `scan(update_saved=False)` when discovery must also leave saved
+profiles untouched.
 Callers supply requirements and consume the returned `Transport`; they do not need to inspect the profile store
 or implement reconnection branches. `resolve()` and `connect()` retain their saved-profile contract and share
 the same workflow internally.

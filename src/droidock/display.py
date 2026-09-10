@@ -141,6 +141,20 @@ def _last_seen(value: str) -> str:
         return value
 
 
+def show_temporary_connection(console: Console, transport: Transport) -> None:
+    identity = transport.identity
+    _fields(
+        console,
+        "Connected without saving",
+        [
+            ("Address", transport.address),
+            ("Serial number", identity.serial if identity else "Unavailable"),
+            ("Model", identity.model if identity else "Unavailable"),
+            ("Profile", "No profile was created or updated"),
+        ],
+    )
+
+
 def show_device(
     console: Console,
     record: DeviceRecord,

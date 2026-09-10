@@ -21,6 +21,7 @@ from .display import (
     show_pairing,
     show_settings,
     show_snapshot,
+    show_temporary_connection,
 )
 from .errors import DroidockError
 from .interactive import InteractiveCli
@@ -128,11 +129,22 @@ def connect(
         str | None, typer.Option(help="Current connection IP:port, separate from the pairing port.")
     ] = None,
     name: Annotated[str | None, typer.Option(help="Name to save or update for the selected device.")] = None,
+    save: Annotated[
+        bool, typer.Option("--save/--no-save", help="Save connection details on this PC.")
+    ] = True,
     json_output: JsonOutput = False,
 ) -> None:
     """Connect to the selected device and verify its identity."""
+    if not save and name is not None:
+        raise DroidockError("--name requires --save; omit --name when using --no-save.", code="invalid_name")
     current = manager(ctx)
-    transport = current.ensure_connected(device, endpoint=endpoint, name=name)
+    transport = current.ensure_connected(device, endpoint=endpoint, name=name, remember=save)
+    if not save:
+        if json_output:
+            emit({"saved": False, **asdict(transport)})
+        else:
+            show_temporary_connection(console, transport)
+        return
     assert transport.identity is not None
     record = current.device(transport.identity.serial)
     if json_output:

@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal, overload
 
 from .adb import AdbBackend
 from .discovery import MdnsDiscovery
@@ -267,8 +268,8 @@ class ConnectionManager:
         """Explicit registration of an authorized, responding transport (USB serial or IP:port)."""
         return self._remember(self.backend.inspect(address), create=True, name=name)
 
-    def scan(self) -> Snapshot:
-        """Observe current connections and advertisements; do not connect unregistered devices."""
+    def scan(self, *, update_saved: bool = True) -> Snapshot:
+        """Observe devices; update_saved=False leaves existing profiles unchanged."""
         warnings: list[str] = []
         with ThreadPoolExecutor(max_workers=3) as executor:
             transport_future = executor.submit(self.backend.transports)
@@ -291,7 +292,11 @@ class ConnectionManager:
         services = sorted(merged.values(), key=lambda s: (s.kind, s.instance, s.endpoint))
         records = self.store.read().devices
         for transport in transports:
-            if transport.identity and any(d.serial == transport.identity.serial for d in records):
+            if (
+                update_saved
+                and transport.identity
+                and any(d.serial == transport.identity.serial for d in records)
+            ):
                 try:
                     self._remember(transport)
                 except IdentityError as exc:
@@ -308,9 +313,46 @@ class ConnectionManager:
             or instance == record.serial.casefold()
         )
 
+    @overload
     def connect_endpoint(
-        self, endpoint: str, *, name: str | None = None, expected: DeviceRecord | None = None
-    ) -> DeviceRecord:
+        self,
+        endpoint: str,
+        *,
+        name: str | None = None,
+        expected: DeviceRecord | None = None,
+        remember: Literal[True] = True,
+    ) -> DeviceRecord: ...
+
+    @overload
+    def connect_endpoint(
+        self,
+        endpoint: str,
+        *,
+        name: str | None = None,
+        expected: DeviceRecord | None = None,
+        remember: Literal[False],
+    ) -> Transport: ...
+
+    @overload
+    def connect_endpoint(
+        self,
+        endpoint: str,
+        *,
+        name: str | None = None,
+        expected: DeviceRecord | None = None,
+        remember: bool,
+    ) -> DeviceRecord | Transport: ...
+
+    def connect_endpoint(
+        self,
+        endpoint: str,
+        *,
+        name: str | None = None,
+        expected: DeviceRecord | None = None,
+        remember: bool = True,
+    ) -> DeviceRecord | Transport:
+        if not remember and name is not None:
+            raise DroidockError("A device name requires saving the profile.", code="invalid_name")
         endpoint = normalize_endpoint(endpoint)
         self.backend.connect(endpoint)
         transport = self.backend.inspect(endpoint)
@@ -318,7 +360,39 @@ class ConnectionManager:
             raise IdentityError(
                 f"The device at {endpoint} does not match {expected.name}. The saved profile was not changed."
             )
-        return self._remember(transport, create=expected is None, name=name)
+        if not transport.ready or transport.identity is None:
+            raise IdentityError("Connection requires a responding device with a verified identity.")
+        return self._remember(transport, create=expected is None, name=name) if remember else transport
+
+    @overload
+    def connect_endpoints(
+        self,
+        endpoints: Iterable[str],
+        *,
+        name: str | None = None,
+        expected: DeviceRecord | None = None,
+        remember: Literal[True] = True,
+    ) -> DeviceRecord: ...
+
+    @overload
+    def connect_endpoints(
+        self,
+        endpoints: Iterable[str],
+        *,
+        name: str | None = None,
+        expected: DeviceRecord | None = None,
+        remember: Literal[False],
+    ) -> Transport: ...
+
+    @overload
+    def connect_endpoints(
+        self,
+        endpoints: Iterable[str],
+        *,
+        name: str | None = None,
+        expected: DeviceRecord | None = None,
+        remember: bool,
+    ) -> DeviceRecord | Transport: ...
 
     def connect_endpoints(
         self,
@@ -326,7 +400,8 @@ class ConnectionManager:
         *,
         name: str | None = None,
         expected: DeviceRecord | None = None,
-    ) -> DeviceRecord:
+        remember: bool = True,
+    ) -> DeviceRecord | Transport:
         """Try up to three addresses for a selected service, verifying the successful connection."""
         candidates = list(dict.fromkeys(normalize_endpoint(endpoint) for endpoint in endpoints))[:3]
         if not candidates:
@@ -334,7 +409,7 @@ class ConnectionManager:
         failures = []
         for endpoint in candidates:
             try:
-                return self.connect_endpoint(endpoint, name=name, expected=expected)
+                return self.connect_endpoint(endpoint, name=name, expected=expected, remember=remember)
             except DroidockError as exc:
                 # Identity, storage, configuration, and profile errors must not trigger another connection.
                 if exc.code not in {"connection_error", "connect_failed", "adb_failed", "timeout"}:

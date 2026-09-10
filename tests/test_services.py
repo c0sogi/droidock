@@ -130,7 +130,7 @@ def test_interactive_registration_saves_one_named_profile(rig, services, monkeyp
     backend.online.clear()
     backend.advertisements = services
     backend.network[available] = connected(available)
-    responses = iter(["3", "3", "1", "Office Android", "0"])
+    responses = iter(["3", "3", "1", "2", "Office Android", "0"])
     monkeypatch.setattr("builtins.input", lambda *_: next(responses))
     InteractiveCli(manager, plain=True).run()
     assert backend.connected == ([IPV4] if available == IPV4 else [IPV4, IPV6])
@@ -152,8 +152,8 @@ def test_pairing_uses_one_service_choice_then_connects_using_its_alternate_addre
         Service("paired-guid", ServiceKind.CONNECT, IPV4),
     ]
     backend.network[IPV6] = connected(IPV6)
-    # One pairing selection and one name prompt; no second prompt for the connection's two addresses.
-    responses = iter(["1", "Office Android"])
+    # One pairing selection, save choice, and name prompt; no second prompt for the connection's two addresses.
+    responses = iter(["1", "2", "Office Android"])
     monkeypatch.setattr("builtins.input", lambda *_: next(responses))
     monkeypatch.setattr("getpass.getpass", lambda *_: "765432")
     with patch.object(backend, "pair", wraps=backend.pair) as pair:

@@ -156,7 +156,7 @@ def test_registration_refreshes_connections_before_returning_to_menu(rig, monkey
     manager, backend, _ = rig
     endpoint = "10.0.0.10:40001"
     backend.network[endpoint] = connected(endpoint)
-    responses = iter(["3", "3", "1", endpoint, "Office Android", "0"])
+    responses = iter(["3", "3", "1", endpoint, "2", "Office Android", "0"])
     monkeypatch.setattr("builtins.input", lambda *_: next(responses))
     with patch("droidock.interactive.show_snapshot", wraps=show_snapshot) as display:
         InteractiveCli(manager, plain=True).run()

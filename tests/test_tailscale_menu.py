@@ -87,7 +87,7 @@ def test_explicit_search_connects_only_selected_peer_and_preserves_alias(rig, mo
     endpoint = "100.64.0.10:40001"
     backend.network[endpoint] = connected(endpoint)
     backend.online[endpoint] = connected(endpoint)
-    ui, output = menu(rig, monkeypatch, ["7", "1", "1", "", "0", "0"])
+    ui, output = menu(rig, monkeypatch, ["7", "1", "1", "2", "", "0", "0"])
     calls = []
 
     async def scan(host, **kwargs):
@@ -129,7 +129,7 @@ def test_manual_port_can_use_the_peers_ipv6_address_without_scanning(rig, monkey
     manager, backend, _ = rig
     endpoint = f"[{PEER.addresses[1]}]:40001"
     backend.network[endpoint] = connected(endpoint)
-    ui, _ = menu(rig, monkeypatch, ["7", "1", "3", "2", "2", "40001", "Office XR", "0", "0"])
+    ui, _ = menu(rig, monkeypatch, ["7", "1", "3", "2", "2", "40001", "2", "Office XR", "0", "0"])
     with patch.object(ui.tailscale_client, "peers", return_value=[PEER]):
         with patch.object(ui.port_scanner, "scan", side_effect=AssertionError("Unexpected scan")):
             ui.run()
@@ -142,7 +142,7 @@ def test_a_different_device_at_saved_tailscale_address_does_not_replace_profile(
     record = manager.register("USB-A", name="My XR")
     manager.store.update(lambda s: s.devices[0].endpoints.append("100.64.0.10:40000"))
     backend.network["100.64.0.10:40001"] = connected("100.64.0.10:40001", serial="OTHER-DEVICE")
-    ui, output = menu(rig, monkeypatch, ["7", "1", "2", "40001", "0", "0", "0"])
+    ui, output = menu(rig, monkeypatch, ["7", "1", "2", "40001", "1", "0", "0", "0"])
     with patch.object(ui.tailscale_client, "peers", return_value=[PEER]):
         ui.run()
     assert len(manager.store.read().devices) == 1
