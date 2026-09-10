@@ -13,6 +13,7 @@ import typer
 from rich.console import Console
 
 from . import __version__
+from .deployment import Deployment
 from .display import (
     show_auto_connect,
     show_device,
@@ -94,6 +95,62 @@ def devices(ctx: typer.Context, json_output: JsonOutput = False) -> None:
         emit(asdict(snapshot))
     else:
         show_snapshot(console, snapshot, current.store.read().default_device)
+
+
+@app.command()
+@guarded
+def install(
+    ctx: typer.Context,
+    apk: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="Standalone APK to install.")],
+    package: Annotated[str, typer.Option(help="Application ID declared by this APK.")],
+    device: Annotated[str | None, typer.Option(help="Saved device name, serial, or address.")] = None,
+    allow_downgrade: Annotated[bool, typer.Option(help="Allow replacement with a lower version.")] = False,
+    launch: Annotated[bool, typer.Option(help="Launch the application after verified installation.")] = False,
+    timeout: Annotated[
+        float, typer.Option(min=1, help="Timeout per transfer/install command in seconds.")
+    ] = 1800,
+    json_output: JsonOutput = False,
+) -> None:
+    """Install and verify an APK, preserving existing application data."""
+    deployment = Deployment(manager(ctx), device)
+    result = deployment.install_apk(apk, package=package, allow_downgrade=allow_downgrade, timeout=timeout)
+    if launch:
+        deployment.launch(package)
+    if json_output:
+        emit({**asdict(result), "launched": launch})
+    else:
+        from .display import show_install
+
+        show_install(console, result)
+        if launch:
+            console.print(f"Launched {package}", markup=False)
+
+
+@app.command("launch")
+@guarded
+def launch_app(
+    ctx: typer.Context,
+    package: str,
+    device: Annotated[str | None, typer.Option(help="Saved device name, serial, or address.")] = None,
+    activity: Annotated[
+        str | None, typer.Option(help="Activity name; defaults to the launcher activity.")
+    ] = None,
+) -> None:
+    """Launch an installed application on the selected device."""
+    Deployment(manager(ctx), device).launch(package, activity=activity)
+    console.print(f"Launched {package}", markup=False)
+
+
+@app.command("stop")
+@guarded
+def stop_app(
+    ctx: typer.Context,
+    package: str,
+    device: Annotated[str | None, typer.Option(help="Saved device name, serial, or address.")] = None,
+) -> None:
+    """Stop an application without clearing its data."""
+    Deployment(manager(ctx), device).stop(package)
+    console.print(f"Stopped {package}", markup=False)
 
 
 @app.command()

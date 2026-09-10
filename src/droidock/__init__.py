@@ -1,6 +1,7 @@
 """Importable Android connection management. Importing this package performs no device I/O."""
 
 from .adb import AdbBackend
+from .deployment import Deployment, InstallResult
 from .discovery import MdnsDiscovery
 from .errors import CommandError, DroidockError, IdentityError, SelectionError
 from .interfaces import Backend, CommandBackend, Discovery, ServerControlBackend
@@ -28,9 +29,11 @@ from .selection import group_transports, select_service
 from .store import DeviceStore
 from .tailscale import TailscaleClient, TailscalePeer
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 __all__ = [
     "AdbBackend",
+    "Deployment",
+    "InstallResult",
     "CommandBackend",
     "ServerControlBackend",
     "CommandError",

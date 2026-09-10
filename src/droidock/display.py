@@ -15,6 +15,7 @@ from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
 
+from .deployment import InstallResult
 from .models import (
     AutoConnectReport,
     DeviceRecord,
@@ -32,6 +33,23 @@ from .models import (
 from .portscan import PortScanProgress, PortScanStatus
 from .selection import group_transports
 from .tailscale import TailscalePeer
+
+
+def show_install(console: Console, result: InstallResult) -> None:
+    table = Table(title="APK installed" if result.installed else "APK already current", show_header=False)
+    table.add_column(style="bold")
+    table.add_column()
+    for label, value in (
+        ("Application", result.package),
+        ("Device", result.address),
+        ("Method", result.method),
+        ("Verification", "SHA-256 matched"),
+        ("Elapsed", f"{result.elapsed_seconds:.1f}s"),
+    ):
+        table.add_row(label, Text(value))
+    console.print(table)
+    for warning in result.warnings:
+        console.print(warning, style="yellow", markup=False)
 
 
 def show_tailscale_peers(console: Console, peers: list[TailscalePeer]) -> None:

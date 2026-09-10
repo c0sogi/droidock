@@ -59,9 +59,8 @@ class AdbBackend:
         self._protocol: int | None = None
 
     @property
-    def executable(self) -> Path:
-        if self._executable:
-            return self._executable
+    def executable_path(self) -> Path:
+        """Locate ADB for previews without executing it or contacting a server."""
         override = self.settings.adb_path or os.environ.get("DROIDOCK_ADB_PATH", "")
         if override:
             candidate = Path(override).expanduser()
@@ -82,6 +81,13 @@ class AdbBackend:
                         code="adb_missing",
                     )
                 candidate = Path(found)
+        return candidate.resolve()
+
+    @property
+    def executable(self) -> Path:
+        if self._executable:
+            return self._executable
+        candidate = self.executable_path
         try:
             result = subprocess.run(
                 [str(candidate), "version"],

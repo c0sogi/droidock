@@ -40,7 +40,7 @@ class ConnectionManager:
     """Headless API. No prompts, terminal imports, global process, or connection at import time.
 
     Supply Backend/Discovery implementations and an event callback to embed in another application.
-    Connection attempts only verify identity; application installation is the caller's responsibility.
+    Connection attempts only verify identity. Use Deployment explicitly for application installation.
     """
 
     def __init__(

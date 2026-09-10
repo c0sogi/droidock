@@ -238,7 +238,7 @@ JSON pairing requires an explicit address and `--code-stdin`, so prompts do not 
 Prefix commands with `uv run` when working in the project. From another directory:
 
 ```powershell
-uv run --project C:\Projects\droidock droidock
+uv run --project ./path/to/droidock droidock
 ```
 
 ### Explicit server recovery (0.1.3)
@@ -319,6 +319,54 @@ Applications can use the verified connection address for installation, file tran
 The package has no dependency on an application workspace or a particular device model.
 See [examples/integrate.py](https://github.com/c0sogi/droidock/blob/main/examples/integrate.py) for a runnable integration example.
 
+### APK installation and application control
+
+Droidock can deploy an existing standalone APK from any working directory. It does not require
+Unity, a source repository, or a particular device model. The application ID is supplied explicitly.
+
+```console
+droidock install application.apk --package com.example.app --device "Test phone"
+droidock install application.apk --package com.example.app --device "Test phone" --launch
+droidock launch com.example.app --device "Test phone"
+droidock stop com.example.app --device "Test phone"
+```
+
+Select **Install an APK** from a connected device or saved device's menu for the interactive flow.
+`install --json` returns installation status, selected address, SHA-256, method, elapsed seconds,
+cleanup warnings, and whether launch was requested and succeeded. `--allow-downgrade` is opt-in;
+existing application data is preserved and Droidock never uninstalls an app to bypass a signature error.
+
+```python
+from droidock import ConnectionManager, Deployment
+
+manager = ConnectionManager()
+transport = manager.ensure_connected("Test phone")
+deployment = Deployment(manager, transport)
+result = deployment.install_apk("application.apk", package="com.example.app")
+if result.installed:
+    print("Installed and verified")
+else:
+    print("The identical APK is already installed")
+deployment.launch("com.example.app")
+```
+
+All operations reuse that manager and selected transport. USB uses streaming installation; wireless
+uses a unique staging file with size and SHA-256 checks before installation. Both verify the installed
+APK's SHA-256. A lost acknowledgement is accepted only when device state confirms completion.
+Installation rejection, including signature or version mismatch, is reported without uninstalling.
+Cleanup failure cannot hide an installation failure; successful results carry any cleanup warnings.
+
+This API currently supports **one standalone APK**, not split APK sets or app bundles. Verification
+requires device `sha256sum`/`stat` and permission to read the installed APK. Supply its actual application
+ID: a different ID cannot be verified after installation. `strategy="streaming"` or `"staged"` overrides
+automatic transport selection. `timeout` defaults to 1800 seconds per transfer/install command.
+An interrupted or failed connection does not switch to another device; reconnect explicitly before retrying.
+`launch(..., activity=".MainActivity")` supports apps needing an explicit activity. Application-specific
+configuration, permissions, and runtime health checks remain the caller's responsibility.
+
+`AdbBackend.executable_path` locates the executable without running it, for previews.
+`executable`, `command()`, and `run()` still validate the executable before use.
+
 ### Device acquisition and selection
 
 `ensure_connected(selector=None, ...)` owns selection, discovery, connection verification, and registration.
@@ -333,7 +381,7 @@ or implement reconnection branches. `resolve()` and `connect()` retain their sav
 the same workflow internally.
 
 ```python
-from droidock import ConnectionManager, DeviceCriteria, SelectionError
+from droidock import ConnectionManager, Deployment, DeviceCriteria, SelectionError
 
 manager = ConnectionManager()
 try:
@@ -342,7 +390,7 @@ try:
         name="Test device",
     )
     # Operation order and application-specific checks belong to the caller.
-    manager.run(["install", "-r", "application.apk"], device=transport, timeout=180)
+    Deployment(manager, transport).install_apk("application.apk", package="com.example.app")
 except SelectionError as error:
     print(error.code, error.candidates)  # IDs/addresses for a GUI, CLI, or service response.
 ```

@@ -1,5 +1,18 @@
 # Droidock validation
 
+## 0.1.6 APK deployment candidate - 2026-09-11
+
+- Release checks are in progress; PyPI publication is gated on CI.
+- Windows Python 3.12: 296 source tests passed, including three final release-review regressions.
+- The earlier 293-test candidate also passed against its installed wheel.
+- Ruff lint/format, isort, and Pyright passed.
+- Added standalone APK installation, verification, launch/stop, interactive install and CLI commands.
+- Tests cover selected-device routing, USB/wireless strategies, lost acknowledgements,
+  corrupt transfers, installed-hash mismatch, signature/version rejection without uninstall,
+  cleanup failure, launcher errors, path quoting, and executable previews without execution.
+- CLI and Python API use the same deployment implementation and existing connection manager.
+- No physical-device installation or Linux/macOS execution was performed for this candidate.
+
 ## 0.1.3 explicit server recovery - 2026-09-10
 
 - Added the interactive restart action, `restart-server` command, and optional server-control API.

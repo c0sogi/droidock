@@ -11,12 +11,14 @@ from rich.console import Console
 
 from . import __version__
 from .dashboard import Dashboard, DeviceEntry
+from .deployment import Deployment
 from .display import (
     AdbScanDisplay,
     show_auto_connect,
     show_device,
     show_diagnostics,
     show_disconnected,
+    show_install,
     show_snapshot,
     show_tailscale_peers,
     show_temporary_connection,
@@ -266,6 +268,7 @@ class InteractiveCli:
                 ("Show connection details", "details"),
                 ("Disconnect wireless connections and disable automatic connection", "disconnect"),
                 ("Delete this profile from the PC", "forget"),
+                ("Install an APK", "install"),
             ],
         )
         if action == "connect":
@@ -274,6 +277,8 @@ class InteractiveCli:
             self.console.print(f"Connected: {connected.name}", style="green", markup=False)
             self._refresh_connections()
             self._pause()
+        elif action == "install":
+            self.install_apk(record.id)
         elif action == "rename":
             name = self.text("New name", record.name)
             if name:
@@ -296,6 +301,21 @@ class InteractiveCli:
             "Delete this profile? Android pairing authorization will be retained."
         ):
             self.manager.forget(record.id)
+
+    def install_apk(self, device: str | Transport) -> None:
+        path = self.text("APK file path")
+        if not path:
+            return
+        package = self.text("Application ID (for example com.example.app)")
+        if not package:
+            return
+        with self.console.status("Installing and verifying APK..."):
+            deployment = Deployment(self.manager, device)
+            result = deployment.install_apk(path.strip().strip('"'), package=package.strip())
+        show_install(self.console, result)
+        if self.confirm("Launch the application now?"):
+            deployment.launch(package.strip())
+        self._pause()
 
     def settings(self) -> None:
         settings = self.manager.settings
@@ -482,7 +502,12 @@ class InteractiveCli:
             if self.choose("Device connection", [("Check connection again", "check")]) == "check":
                 self._refresh_connections()
             return
-        if self.choose(entry.label, [("Save this device and set its name", "save")]) == "save":
+        action = self.choose(
+            entry.label, [("Save this device and set its name", "save"), ("Install an APK", "install")]
+        )
+        if action == "install":
+            self.install_apk(transport)
+        elif action == "save":
             current = self.manager.ensure_connected(
                 transport.identity.serial if transport.identity else transport.address, remember=False
             )
