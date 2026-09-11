@@ -14,9 +14,11 @@ from droidock import (
 
 
 @pytest.fixture(autouse=True)
-def isolate_configuration_environment(monkeypatch):
+def isolate_configuration_environment(monkeypatch, tmp_path):
     for name in ("HOME", "ADB_PATH", "TAILSCALE_PATH"):
         monkeypatch.delenv(f"DROIDOCK_{name}", raising=False)
+    # Clearing DROIDOCK_HOME must never fall back to the developer's real profiles.
+    monkeypatch.setattr("droidock.store.user_config_path", lambda *args, **kwargs: tmp_path / "default-profiles")
 
 
 class FakeBackend:
