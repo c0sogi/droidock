@@ -1,5 +1,31 @@
 # Droidock validation
 
+## 0.1.7 screen mirroring - 2026-11-12
+
+- Windows 11, Python 3.12: 354 tests passed in the checkout and again against the installed wheel from outside it.
+  Ruff lint and format, isort, Pyright (zero errors), `uv lock --check`, and strict Twine checks passed.
+  `scripts/verify_wheel.py` passed with an empty `PATH`, now including mirroring imports without terminal
+  packages, a pinned scrcpy archive for this computer, and `mirror`/`scrcpy` help.
+- New tests cover the scrcpy installer (verified download and reuse, digest mismatch, archive paths outside the
+  folder, tar archives, download retries, a broken managed copy, configured and `PATH` executables with version
+  checks, unsupported platforms), starting-quality selection, scrcpy arguments, the link probe against a loopback
+  server speaking the ADB smart-socket protocol, monitor thresholds and frame-flow gating, restarts, reconnection,
+  start failures, keys, the ADB environment, headset detection, CLI options, and the device list.
+- Physical device: Samsung Galaxy XR (Android 14) over wireless debugging on Wi-Fi, from Windows 11.
+  - The pinned scrcpy 5.0.1 win64 archive downloaded and matched its published SHA-256 digest.
+  - The 7104x3840 side-by-side display and XR features were detected; scrcpy ran with `--crop=3552:3840:0:0`
+    and `--no-control`.
+  - Within minutes the link measured between 6 and 26 Mb/s with 20-46 ms round trips, and the starting quality
+    followed (low, light, balanced, sharp).
+  - A quality change restarted scrcpy in about 2.5 s; the new window returned to the position and size the
+    previous window had been moved to.
+  - With the headset not worn, no frames arrived and ADB round trips rose to 700-900 ms from Wi-Fi power saving
+    alone. Before frame-flow gating this lowered the quality falsely; with gating, a 25-second session kept its
+    starting quality.
+  - Quitting removed the ADB reverse tunnel and the device-side scrcpy server.
+- Not verified: the mirrored picture while the headset is worn, a restart caused by real network congestion
+  (exercised with test doubles), and mirroring on macOS and Linux.
+
 ## 0.1.6 APK deployment - 2026-09-11
 
 - Released on PyPI and GitHub as 0.1.6 from commit `2cd611d`.

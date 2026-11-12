@@ -20,9 +20,13 @@ from pathlib import Path
 
 import droidock
 from droidock import (
+    QUALITY_LEVELS,
+    SCRCPY_RELEASE,
     AdbPortScanner,
     DeviceStore,
+    MirrorOptions,
     PortScanStatus,
+    ScrcpyInstaller,
     Service,
     ServiceKind,
     Settings,
@@ -81,6 +85,11 @@ def main() -> None:
     stop.set()
     cancelled = asyncio.run(AdbPortScanner().scan("127.0.0.1", ports=[40001], stop=stop))
     assert cancelled.status is PortScanStatus.CANCELLED and cancelled.completed == 0
+    # Mirroring imports without terminal packages and has a pinned scrcpy for this computer.
+    assert MirrorOptions().eye == "auto" and QUALITY_LEVELS[0].name == "ultra"
+    assert "typer" not in sys.modules and "rich" not in sys.modules
+    scrcpy_platform = ScrcpyInstaller().platform
+    assert SCRCPY_RELEASE.asset(scrcpy_platform) is not None, scrcpy_platform
     entry_points = {
         entry.name: entry.value for entry in metadata.entry_points if entry.group == "console_scripts"
     }
@@ -109,6 +118,8 @@ def main() -> None:
             return result.stdout
 
         assert "Android" in run("--help")
+        assert "low latency" in run("mirror", "--help")
+        assert "pinned release" in run("scrcpy", "--help")
         assert run("--version").strip() == f"droidock {droidock.__version__}"
         assert "Connection settings" in run("settings", "auto_connect_on_start", "false")
         assert not json.loads(run("settings", "--json"))["auto_connect_on_start"]
@@ -124,6 +135,8 @@ def main() -> None:
             "service_kind_enum_json_ok": True,
             "tailscale_api_and_scan_cancellation_ok": True,
             "help_ok": True,
+            "mirroring_api_ok": True,
+            "scrcpy_platform": scrcpy_platform,
             "settings_persisted": True,
             "path_was_empty": True,
             "bundled_adb": str(backend.executable),

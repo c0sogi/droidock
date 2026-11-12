@@ -25,8 +25,9 @@ from .display import (
 )
 from .errors import DroidockError
 from .manager import ConnectionManager
-from .models import DeviceRecord, ServiceGroup, ServiceKind, Snapshot, Transport
+from .models import DeviceCriteria, DeviceRecord, ServiceGroup, ServiceKind, Snapshot, Transport
 from .portscan import AdbPortScanner, PortScanStatus, endpoint_host, preferred_adb_ports
+from .selection import group_transports
 from .tailscale import TailscaleClient, TailscalePeer
 
 
@@ -269,6 +270,8 @@ class InteractiveCli:
                 ("Disconnect wireless connections and disable automatic connection", "disconnect"),
                 ("Delete this profile from the PC", "forget"),
                 ("Install an APK", "install"),
+                # Appended so the numbered (--plain) menu keeps its earlier numbers.
+                ("Mirror the screen", "mirror"),
             ],
         )
         if action == "connect":
@@ -277,6 +280,8 @@ class InteractiveCli:
             self.console.print(f"Connected: {connected.name}", style="green", markup=False)
             self._refresh_connections()
             self._pause()
+        elif action == "mirror":
+            self.mirror(record.id)
         elif action == "install":
             self.install_apk(record.id)
         elif action == "rename":
@@ -301,6 +306,89 @@ class InteractiveCli:
             "Delete this profile? Android pairing authorization will be retained."
         ):
             self.manager.forget(record.id)
+
+    def mirror(self, device: str | Transport) -> None:
+        from .mirror_view import run_mirror
+
+        try:
+            run_mirror(self.manager, device, console=self.console)
+        finally:
+            self._refresh_connections()
+        self._pause()
+
+    def pick_device(
+        self, *, criteria: DeviceCriteria | None = None, title: str = "Choose a device"
+    ) -> Transport | None:
+        """Choose a connected, saved, or nearby device and return its verified connection.
+
+        Devices matching criteria are listed first. Connections made here do not save profiles.
+        None means the choice was cancelled.
+        """
+        snapshot = self._scan(update_saved=False)
+        while True:
+            state = self.manager.store.read()
+            groups = [
+                g for g in group_transports(snapshot.transports) if not g.conflict and g.transports[0].ready
+            ]
+            groups.sort(
+                key=lambda g: (
+                    criteria is not None and not any(criteria.matches(t.identity) for t in g.transports)
+                )
+            )
+            connected_serials = {t.identity.serial for g in groups for t in g.transports if t.identity}
+            connected_addresses = {t.address for g in groups for t in g.transports}
+            choices: list[tuple[str, str]] = []
+            for group in groups:
+                first = group.transports[0]
+                identity = first.identity
+                record = next((d for d in state.devices if identity and d.serial == identity.serial), None)
+                name = (
+                    record.name if record else (identity.model if identity and identity.model else "Android")
+                )
+                choices.append(
+                    (f"{name} · {first.address if first.wireless else 'USB'}", f"transport:{first.address}")
+                )
+            for record in state.devices:
+                if record.serial not in connected_serials:
+                    choices.append((f"{record.name} · saved, not connected", f"profile:{record.id}"))
+            for index, service in enumerate(snapshot.service_groups):
+                if service.kind == ServiceKind.CONNECT and not connected_addresses.intersection(
+                    service.endpoints
+                ):
+                    label = service.instance or "Wireless device"
+                    choices.append((f"{label} · nearby {service.endpoints[0]}", f"service:{index}"))
+            choices += [
+                ("Enter a connection address (IP:port)", "address:"),
+                ("Pair a new device with a pairing code", "pair:"),
+                ("Scan again", "scan:"),
+            ]
+            answer = self.choose(title, choices, back="Cancel")
+            if answer is None:
+                return None
+            kind, _, value = answer.partition(":")
+            try:
+                if kind == "transport":
+                    return self.manager.ensure_connected(value, remember=False, discover=False)
+                if kind == "profile":
+                    with self.console.status("Connecting to the saved device..."):
+                        return self.manager.ensure_connected(value)
+                if kind == "service":
+                    with self.console.status("Connecting to the nearby device..."):
+                        return self.manager.connect_endpoints(
+                            snapshot.service_groups[int(value)].endpoints, remember=False
+                        )
+                if kind == "address":
+                    endpoint = self.text("Current connection address (IP:port)")
+                    if endpoint:
+                        with self.console.status("Connecting..."):
+                            return self.manager.connect_endpoint(endpoint.strip(), remember=False)
+                    continue
+                if kind == "pair":
+                    self.pair()
+            except DroidockError as exc:
+                self.console.print(str(exc), style="red", markup=False)
+                self._pause()
+            snapshot = self._scan(update_saved=False)
 
     def install_apk(self, device: str | Transport) -> None:
         path = self.text("APK file path")
@@ -503,9 +591,16 @@ class InteractiveCli:
                 self._refresh_connections()
             return
         action = self.choose(
-            entry.label, [("Save this device and set its name", "save"), ("Install an APK", "install")]
+            entry.label,
+            [
+                ("Save this device and set its name", "save"),
+                ("Install an APK", "install"),
+                ("Mirror the screen", "mirror"),
+            ],
         )
-        if action == "install":
+        if action == "mirror":
+            self.mirror(transport)
+        elif action == "install":
             self.install_apk(transport)
         elif action == "save":
             current = self.manager.ensure_connected(

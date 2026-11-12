@@ -205,11 +205,73 @@ Set `DROIDOCK_ADB_PATH` to override the bundled executable. The saved `adb_path`
 environment variable. Set `DROIDOCK_TAILSCALE_PATH` to select a Tailscale executable, or pass its path directly to
 `TailscaleClient(executable=...)`. The public base exception is `DroidockError`.
 
+## Screen mirroring
+
+`droidock mirror` shows a device screen on this PC through [scrcpy](https://github.com/Genymobile/scrcpy),
+tuned for the lowest latency the connection allows. No options are needed:
+
+```powershell
+droidock mirror                 # the only connected device, or the default saved device
+droidock mirror "Office XR"     # a saved name, serial, or address
+droidock mirror --pick          # choose from connected, saved, and nearby devices
+```
+
+- **No setup.** Without scrcpy 3.0 or later on `PATH`, the pinned scrcpy 5.0.1 release is downloaded once from
+  GitHub into the user cache and used only after its SHA-256 digest matches the published value. Nothing is
+  installed system-wide. Run `droidock scrcpy` once while online before mirroring somewhere without internet
+  access. `DROIDOCK_SCRCPY_PATH` selects another scrcpy.
+- **Sized to the link.** USB starts at the highest quality. On a network connection, Droidock measures the round
+  trip and throughput through the device's own ADB connection (about half a second) and starts at the highest
+  quality that needs at most 40% of the measured throughput.
+- **Kept current.** scrcpy cannot change its bit rate while running, and video beyond the link's capacity waits in
+  buffers until the picture is seconds behind. While mirroring over a network, Droidock times a tiny shell request
+  on the same connection every second. When it stays more than 350 ms behind while frames are arriving, scrcpy
+  restarts one quality lower (two when a second behind). Replies are ignored while no frames arrive, because Wi-Fi
+  power saving on an idle device (a headset that is not worn) delays them without any video queuing. On Windows
+  the new window returns to the same position and size.
+- **Latency-first stream.** H.264, no audio, and no video buffering; the PC's screen saver stays off. scrcpy uses
+  the same ADB executable and server as Droidock, so two ADB versions never restart each other's server.
+- **Headsets.** A device that shows both eyes side by side on one wide panel and declares XR or VR features, such
+  as Galaxy XR (7104x3840), is mirrored as its left eye and receives no input from the PC. `--eye right`,
+  `--eye both`, and `--control` change that.
+- **Disconnections.** When the device drops off, Droidock reconnects to the same device and resumes.
+
+While mirroring, press `+` or `-` to raise or lower the quality, `r` to restart, and `q` or Ctrl+C to quit.
+Closing the window also ends the session. The status line shows the quality, the frame rate, and how long video
+waits on the link. Each device's **Mirror the screen** action in the interactive menu starts the same session.
+
+| Quality | Longer side | Frame rate | Bit rate |
+|---|---|---|---|
+| `ultra` | 1920 | 60 | 20 Mb/s |
+| `high` | 1600 | 60 | 12 Mb/s |
+| `sharp` | 1280 | 60 | 8 Mb/s |
+| `balanced` | 1280 | 30 | 5 Mb/s |
+| `light` | 1024 | 30 | 3 Mb/s |
+| `low` | 800 | 30 | 1.8 Mb/s |
+| `minimal` | 640 | 24 | 1 Mb/s |
+
+`--quality NAME` sets the starting quality and skips the throughput measurement, and `--no-adapt` keeps the
+quality fixed. Other options: `--view-only` or `--control`, `--audio`, `--fullscreen`, `--on-top`,
+`--title "{device} demo"`, and `--no-reconnect`. Pass any other scrcpy option with `=`, for example
+`--scrcpy-arg=--crop=1224:1440:0:0` (repeatable). Choosing a device uses ADB and mDNS only; mirroring never scans
+ports.
+
+From Python, `MirrorSession` runs the same session without terminal output; pass `on_event` for progress and
+read `status` for a live display:
+
+```python
+from droidock import ConnectionManager, MirrorOptions, MirrorSession
+
+manager = ConnectionManager()
+transport = manager.ensure_connected("Office XR")
+report = MirrorSession(manager, transport, options=MirrorOptions(eye="left")).run()
+```
+
 ## CLI commands
 
 Interactive device details and diagnostics use labeled tables, readable statuses, and suggested next steps.
 Result commands also display tables or short messages by default. For scripts, append `--json` to `devices`,
-`register`, `connect`, `pair`, `auto-connect`, `diagnose`, `settings`, `profile`, or `disconnect`.
+`register`, `connect`, `pair`, `auto-connect`, `diagnose`, `settings`, `profile`, `disconnect`, or `scrcpy`.
 For example, `uv run droidock settings --json` preserves the structured field names and values.
 JSON pairing requires an explicit address and `--code-stdin`, so prompts do not appear in the JSON output.
 
@@ -229,6 +291,9 @@ JSON pairing requires an explicit address and `--code-stdin`, so prompts do not 
 | `droidock profile "Office XR" --default` | Select the default device. |
 | `droidock profile "Office XR" --no-auto-connect` | Disable automatic connection for this device. |
 | `droidock disconnect "Office XR"` | Disconnect verified wireless connections and disable automatic connection. |
+| `droidock mirror` | Mirror the only, default, or named device with low latency (see Screen mirroring). |
+| `droidock mirror --pick` | Choose the device to mirror from connected, saved, and nearby devices. |
+| `droidock scrcpy` | Show the scrcpy used for mirroring, downloading the pinned release once if needed. |
 | `droidock diagnose` | Show ADB, server, and device diagnostics with connection guidance. |
 | `droidock restart-server` | Confirm a local ADB server restart, then reconnect saved devices with automatic connection enabled. |
 | `droidock settings` | Show connection settings and the storage path. |

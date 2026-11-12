@@ -27,6 +27,8 @@ from .display import (
 from .errors import DroidockError
 from .interactive import InteractiveCli
 from .manager import ConnectionManager
+from .mirror import EYES, MirrorOptions, quality_index
+from .scrcpy import ScrcpyInstaller
 from .store import DeviceStore
 
 app = typer.Typer(
@@ -241,6 +243,126 @@ def pair(
         )
     else:
         show_pairing(console, result)
+
+
+ScrcpyPath = Annotated[
+    Path | None,
+    typer.Option(
+        "--scrcpy",
+        help="scrcpy executable to use instead of the managed copy.",
+        envvar="DROIDOCK_SCRCPY_PATH",
+        dir_okay=False,
+    ),
+]
+
+
+@app.command()
+@guarded
+def mirror(
+    ctx: typer.Context,
+    device: Annotated[
+        str | None,
+        typer.Argument(help="Saved name, device ID, serial, or address. Omit to choose automatically."),
+    ] = None,
+    pick: Annotated[
+        bool, typer.Option("--pick", help="Choose from connected, saved, and nearby devices.")
+    ] = False,
+    quality: Annotated[
+        str,
+        typer.Option(
+            help="auto measures the link and chooses; or ultra, high, sharp, balanced, light, low, minimal."
+        ),
+    ] = "auto",
+    adapt: Annotated[
+        bool,
+        typer.Option(
+            "--adapt/--no-adapt", help="Lower the quality when video starts queuing on the network."
+        ),
+    ] = True,
+    control: Annotated[
+        bool | None,
+        typer.Option(
+            "--control/--view-only",
+            help="Forward keyboard and mouse input. By default on, except for headsets.",
+        ),
+    ] = None,
+    eye: Annotated[
+        str,
+        typer.Option(
+            help="auto shows the left eye of a headset's side-by-side display; or left, right, both."
+        ),
+    ] = "auto",
+    audio: Annotated[bool, typer.Option(help="Forward device audio too.")] = False,
+    fullscreen: Annotated[bool, typer.Option(help="Open the mirror in full screen.")] = False,
+    on_top: Annotated[bool, typer.Option("--on-top", help="Keep the mirror above other windows.")] = False,
+    title: Annotated[
+        str | None, typer.Option(help="Window title; {device} is replaced by the device name.")
+    ] = None,
+    reconnect: Annotated[
+        bool,
+        typer.Option("--reconnect/--no-reconnect", help="Reconnect and resume when the device disconnects."),
+    ] = True,
+    scrcpy: ScrcpyPath = None,
+    scrcpy_arg: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--scrcpy-arg",
+            help="Extra scrcpy argument, written with '=' (--scrcpy-arg=--crop=1224:1440:0:0). Repeatable.",
+        ),
+    ] = None,
+) -> None:
+    """Mirror a device screen with scrcpy, tuned for low latency on the measured link.
+
+    scrcpy is downloaded once, checked against its published digest, if none is installed.
+    While mirroring, press + or - to change the quality, r to restart, and q to quit.
+    """
+    from .mirror_view import run_mirror
+
+    selected = quality.strip().casefold()
+    if selected != "auto":
+        quality_index(selected)
+    if eye.strip().casefold() not in EYES:
+        raise DroidockError("Choose an eye: " + ", ".join(EYES) + ".", code="invalid_eye")
+    options = MirrorOptions(
+        quality=None if selected == "auto" else selected,
+        adaptive=adapt,
+        control=control,
+        eye=eye.strip().casefold(),
+        audio=audio,
+        title=title or "",
+        fullscreen=fullscreen,
+        always_on_top=on_top,
+        reconnect=reconnect,
+        scrcpy_arguments=tuple(scrcpy_arg or ()),
+    )
+    run_mirror(
+        manager(ctx),
+        device,
+        options=options,
+        console=console,
+        pick=pick,
+        plain=bool(ctx.find_root().params.get("plain")),
+        installer=ScrcpyInstaller(executable=scrcpy),
+    )
+
+
+@app.command("scrcpy")
+@guarded
+def scrcpy_command(scrcpy: ScrcpyPath = None, json_output: JsonOutput = False) -> None:
+    """Show the scrcpy used for mirroring, downloading the pinned release if none is installed.
+
+    Run it once while online before mirroring somewhere without internet access.
+    """
+    from .mirror_view import prepare_scrcpy
+
+    install = prepare_scrcpy(
+        Console(stderr=True) if json_output else console, ScrcpyInstaller(executable=scrcpy)
+    )
+    if json_output:
+        emit({"executable": str(install.executable), "version": install.version, "source": install.source})
+    else:
+        console.print(f"scrcpy {install.version} ({install.source})", style="green", markup=False)
+        console.print(str(install.executable), markup=False)
 
 
 @app.command("auto-connect")
