@@ -6,6 +6,7 @@ import os
 import sys
 from dataclasses import replace
 from types import TracebackType
+from typing import Any
 
 from rich.console import Console
 from rich.live import Live
@@ -54,7 +55,7 @@ class KeyReader:
 
     def __init__(self, enabled: bool = True) -> None:
         self.enabled = enabled and sys.stdin.isatty()
-        self._saved: list[object] | None = None
+        self._saved: Any = None  # termios attributes, restored on exit
 
     def __enter__(self) -> KeyReader:
         if self.enabled and sys.platform != "win32":
