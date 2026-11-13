@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.8
+
+- Mirror the whole display of every device by default. Galaxy XR mirrors one undistorted view, not its two eye
+  panels, so the left-eye crop of 0.1.7 showed only the left half of that view. The crop also made the headset
+  render its full 7104x3840 display and crop it every frame: GPU load doubled (36% to 72%) and the mirror fell
+  from 36 to 25-32 fps.
+- `--eye` takes `both` (the default), `left`, or `right`; `auto` is removed. Headsets still receive no input
+  from the PC unless `--control` is given.
+- Show the video size in the status line when scrcpy decodes on the GPU, which it reports as
+  `Texture (D3D11VA): 1280x704`.
+
 ## 0.1.7
 
 - Add `droidock mirror`: low-latency screen mirroring through scrcpy. It chooses the only, default, or named

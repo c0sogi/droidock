@@ -289,9 +289,10 @@ def mirror(
     eye: Annotated[
         str,
         typer.Option(
-            help="auto shows the left eye of a headset's side-by-side display; or left, right, both."
+            help="both shows the whole display; left or right shows one half of a headset whose mirror "
+            "shows both eyes side by side."
         ),
-    ] = "auto",
+    ] = "both",
     audio: Annotated[bool, typer.Option(help="Forward device audio too.")] = False,
     fullscreen: Annotated[bool, typer.Option(help="Open the mirror in full screen.")] = False,
     on_top: Annotated[bool, typer.Option("--on-top", help="Keep the mirror above other windows.")] = False,

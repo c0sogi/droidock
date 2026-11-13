@@ -1,5 +1,33 @@
 # Droidock validation
 
+## 0.1.8 headset view - 2026-11-13
+
+- Windows 11, Python 3.12: 355 tests passed in the checkout and again against the installed wheel from outside it.
+  Ruff lint and format, isort, Pyright (zero errors), `uv lock --check`, strict Twine checks, and
+  `scripts/verify_wheel.py` with an empty `PATH` passed.
+- Physical device: Samsung Galaxy XR (Android 14) over wireless debugging on Wi-Fi, from Windows 11, worn and
+  running an immersive Unity app on a 72 Hz display.
+  - scrcpy's mirror of the 7104x3840 display is one undistorted view of what the wearer sees, not the two eye
+    panels (`screencap` returns a 2880x2880 view of the same kind). The 0.1.7 left-eye crop therefore showed the
+    left half of that view, with the wearer's line of sight at its right edge.
+  - Interleaved runs at 1600 px and 12 Mb/s, two of each; frame intervals come from the recordings' device
+    timestamps:
+
+    | View | Headset GPU busy | DDR clock | Mirror | Intervals over 35 ms |
+    |---|---|---|---|---|
+    | No mirror | 35.5% | 2972 MHz average | - | - |
+    | Whole display | 36.5% | 2952 MHz average | 36.0 fps, every 27.8 ms | 0% |
+    | Left-eye crop | 71.8%, peak 85% | 3197 MHz (maximum) throughout | 25.3 and 26.9 fps | 68% and 85% |
+
+  - With the 0.1.8 defaults, a 25-second session reported "Headset display 7104x3840: mirroring the whole
+    display, view only", measured 28.9 Mb/s with 17 ms round trips, ran scrcpy at sharp without `--crop` and
+    with `--no-control`, and held 36 fps. Headset GPU busy was 41-43% in these sessions, with a different scene
+    from the runs above.
+  - scrcpy 5.0.1 reported its hardware-decoded texture as `Texture (D3D11VA): 1280x704`, which 0.1.7 did not
+    read; after the fix the status line showed 1280x704. In that 16-second session, frames stopped for about
+    3 s and resumed without a restart while the link showed no queuing. The cause was not found.
+- Not verified: mirroring on macOS and Linux, and a headset whose mirror shows both eye panels side by side.
+
 ## 0.1.7 screen mirroring - 2026-11-12
 
 - Windows 11, Python 3.12: 354 tests passed in the checkout and again against the installed wheel from outside it.

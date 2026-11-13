@@ -410,6 +410,14 @@ def test_session_runs_until_the_window_closes(rig):
     )
 
 
+def test_texture_sizes_are_read_when_scrcpy_decodes_on_the_gpu(rig):
+    manager, _, _ = rig
+    lines = ("INFO: Texture (D3D11VA): 1280x704", "INFO: 35 fps (+2 frames skipped)")
+    session = make_session(manager, USB, Launcher(FakeProcess(12, lines, polls=1)))
+    session.run()
+    assert (session.status.video_size, session.status.fps) == ("1280x704", 35)
+
+
 def test_network_links_are_measured_before_starting(rig):
     manager, _, _ = rig
     probe = FakeProbe(throughput=15_000_000)
@@ -751,29 +759,34 @@ class CommandBackend:
         return CommandResult(0, self.output, "")
 
 
-def test_headsets_show_one_eye_without_forwarding_input(rig):
+def test_headsets_mirror_the_whole_display_without_forwarding_input(rig):
+    # Galaxy XR mirrors one undistorted view, so a crop would cut that view in half.
     manager, backend, _ = rig
     manager.backend = CommandBackend(backend, XR_OUTPUT)
     events: list = []
     launcher = Launcher(FakeProcess(121, polls=0))
     make_session(manager, NETWORK, launcher, events=events).run()
     arguments = launcher.calls[0][0]
-    assert "--crop=3552:3840:0:0" in arguments and "--no-control" in arguments
+    assert not any(a.startswith("--crop") for a in arguments) and "--no-control" in arguments
     assert manager.backend.commands == [(["shell", "wm size; pm list features"], NETWORK.address)]
     assert [e.message for e in events if e.kind == "display"] == [
-        "Headset display 7104x3840: mirroring the left eye, view only."
+        "Headset display 7104x3840: mirroring the whole display, view only."
     ]
 
 
 def test_explicit_eye_and_control_choices_override_the_headset_defaults(rig):
     manager, backend, _ = rig
     manager.backend = CommandBackend(backend, XR_OUTPUT)
+    events: list = []
     launcher = Launcher(FakeProcess(131, polls=0), FakeProcess(132, polls=0))
-    make_session(manager, USB, launcher, options=MirrorOptions(eye="both", control=True)).run()
-    make_session(manager, USB, launcher, options=MirrorOptions(eye="right")).run()
-    both, right = (call[0] for call in launcher.calls)
-    assert not any(a.startswith("--crop") for a in both) and "--no-control" not in both
+    make_session(manager, USB, launcher, options=MirrorOptions(control=True)).run()
+    make_session(manager, USB, launcher, events=events, options=MirrorOptions(eye="right")).run()
+    forwarded, right = (call[0] for call in launcher.calls)
+    assert not any(a.startswith("--crop") for a in forwarded) and "--no-control" not in forwarded
     assert "--crop=3552:3840:3552:0" in right and "--no-control" in right
+    assert [e.message for e in events if e.kind == "display"] == [
+        "Headset display 7104x3840: mirroring the right eye, view only."
+    ]
 
 
 def test_phones_mirror_the_whole_screen_with_input(rig):
@@ -798,8 +811,9 @@ def test_backends_without_commands_mirror_the_whole_display(rig):
 
 
 def test_unknown_eyes_are_rejected():
-    result = runner.invoke(app, ["mirror", "--eye", "middle"])
-    assert result.exit_code == 1 and "Choose an eye: auto, left, right, both" in result.output
+    for eye in ("middle", "auto"):
+        result = runner.invoke(app, ["mirror", "--eye", eye])
+        assert result.exit_code == 1 and "Choose an eye: both, left, right" in result.output
 
 
 def test_monitor_ignores_slow_replies_while_no_video_flows():

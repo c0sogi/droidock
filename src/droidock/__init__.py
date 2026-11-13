@@ -46,7 +46,7 @@ from .selection import group_transports, select_service
 from .store import DeviceStore
 from .tailscale import TailscaleClient, TailscalePeer
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 __all__ = [
     "QUALITY_LEVELS",
     "SCRCPY_RELEASE",

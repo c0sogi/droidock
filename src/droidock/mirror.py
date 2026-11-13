@@ -327,7 +327,7 @@ class LinkMonitor:
             self._stop.wait(self.interval)
 
 
-EYES = ("auto", "left", "right", "both")
+EYES = ("both", "left", "right")
 HEADSET_ASPECT = 1.8
 _XR_FEATURE = re.compile(r"\.(?:xr|vr)\.", re.IGNORECASE)
 
@@ -351,8 +351,8 @@ class DisplayInfo:
 def parse_display(output: str) -> DisplayInfo | None:
     """Read ``wm size`` and ``pm list features`` output.
 
-    A headset shows both eyes side by side on one wide panel (Galaxy XR: 7104x3840) and
-    declares XR or VR system features; phones, tablets, and TVs are narrower or declare neither.
+    A headset drives both eyes from one wide panel (Galaxy XR: 7104x3840) and declares XR or VR
+    system features; phones, tablets, and TVs are narrower or declare neither.
     """
     match = re.search(r"Physical size:\s*(\d+)x(\d+)", output)
     if not match:
@@ -368,13 +368,15 @@ class MirrorOptions:
     """Choices for a mirroring session.
 
     quality=None measures the link and chooses. control=None forwards input except to headsets.
-    eye="auto" shows the left eye of a headset and the whole display of anything else.
+    eye="both" mirrors the whole display. "left" or "right" crops one half of a headset whose
+    mirror shows both eye panels side by side; scrcpy then renders the full display and crops
+    every frame on the device. Galaxy XR mirrors one undistorted view, which needs no crop.
     """
 
     quality: str | int | None = None
     adaptive: bool = True
     control: bool | None = None
-    eye: str = "auto"
+    eye: str = "both"
     audio: bool = False
     title: str = ""
     fullscreen: bool = False
@@ -518,7 +520,7 @@ class _Outcome:
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 _FPS = re.compile(r"\b(\d+) fps\b")
-_TEXTURE = re.compile(r"\bTexture: (\d+x\d+)")
+_TEXTURE = re.compile(r"\bTexture(?: \([^)]*\))?: (\d+x\d+)")  # "Texture (D3D11VA): 1280x704" on the GPU
 _PROBLEM = re.compile(r"^(?:\[server\]\s*)?(ERROR|WARN):\s*(.*)$")
 
 
@@ -649,7 +651,7 @@ class MirrorSession:
             self._state = state
 
     def _choose_view(self) -> None:
-        """Show one eye of a headset without forwarding input, unless the options say otherwise."""
+        """Mirror the whole display, and forward no input to a headset unless the options say so."""
         try:
             result = self.manager.run(
                 ["shell", "wm size; pm list features"], device=self.transport, timeout=10, check=False
@@ -659,21 +661,20 @@ class MirrorSession:
             self.display = None
         headset = self.display is not None and self.display.headset
         eye = self.options.eye
-        if eye == "auto":
-            eye = "left" if headset else "both"
         self._crop = self.display.eye_crop(eye) if self.display is not None else None
         control = self.options.control if self.options.control is not None else not headset
-        self._view = replace(self.options, control=control, eye=eye)
+        self._view = replace(self.options, control=control)
         if eye in {"left", "right"} and self._crop is None:
             self._event(
                 "warning", "The display does not show two eyes side by side, so all of it is mirrored."
             )
-        elif self._crop is not None and self.display is not None:
+        elif self.display is not None and (headset or self._crop is not None):
             kind = "Headset display" if headset else "Display"
+            view = f"the {eye} eye" if self._crop is not None else "the whole display"
             input_note = "" if control else ", view only"
             self._event(
                 "display",
-                f"{kind} {self.display.width}x{self.display.height}: mirroring the {eye} eye{input_note}.",
+                f"{kind} {self.display.width}x{self.display.height}: mirroring {view}{input_note}.",
             )
 
     def _measure(self) -> LinkMeasurement:

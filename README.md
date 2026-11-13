@@ -231,9 +231,12 @@ droidock mirror --pick          # choose from connected, saved, and nearby devic
   the new window returns to the same position and size.
 - **Latency-first stream.** H.264, no audio, and no video buffering; the PC's screen saver stays off. scrcpy uses
   the same ADB executable and server as Droidock, so two ADB versions never restart each other's server.
-- **Headsets.** A device that shows both eyes side by side on one wide panel and declares XR or VR features, such
-  as Galaxy XR (7104x3840), is mirrored as its left eye and receives no input from the PC. `--eye right`,
-  `--eye both`, and `--control` change that.
+- **Headsets.** A device that drives both eyes from one wide panel and declares XR or VR features, such as
+  Galaxy XR (7104x3840), receives no input from the PC unless `--control` is given. Galaxy XR mirrors one
+  undistorted view of what the wearer sees, so the whole display is shown; with a 72 Hz display it produced 36
+  mirror frames per second. For a headset whose mirror shows both eye panels side by side, `--eye left` or
+  `--eye right` shows one of them. A crop makes scrcpy render the full display and crop it on the device every
+  frame: on Galaxy XR, cropping doubled the GPU load (36% to 72%) and lowered the mirror to 25-32 fps.
 - **Disconnections.** When the device drops off, Droidock reconnects to the same device and resumes.
 
 While mirroring, press `+` or `-` to raise or lower the quality, `r` to restart, and `q` or Ctrl+C to quit.
@@ -264,7 +267,7 @@ from droidock import ConnectionManager, MirrorOptions, MirrorSession
 
 manager = ConnectionManager()
 transport = manager.ensure_connected("Office XR")
-report = MirrorSession(manager, transport, options=MirrorOptions(eye="left")).run()
+report = MirrorSession(manager, transport, options=MirrorOptions(quality="high")).run()
 ```
 
 ## CLI commands

@@ -86,7 +86,7 @@ def main() -> None:
     cancelled = asyncio.run(AdbPortScanner().scan("127.0.0.1", ports=[40001], stop=stop))
     assert cancelled.status is PortScanStatus.CANCELLED and cancelled.completed == 0
     # Mirroring imports without terminal packages and has a pinned scrcpy for this computer.
-    assert MirrorOptions().eye == "auto" and QUALITY_LEVELS[0].name == "ultra"
+    assert MirrorOptions().eye == "both" and QUALITY_LEVELS[0].name == "ultra"
     assert "typer" not in sys.modules and "rich" not in sys.modules
     scrcpy_platform = ScrcpyInstaller().platform
     assert SCRCPY_RELEASE.asset(scrcpy_platform) is not None, scrcpy_platform
